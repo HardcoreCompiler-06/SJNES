@@ -33,8 +33,6 @@ public:
     // XUẤT HÌNH ẢNH RA QT CỦA ANH
     // ==============================================================================
     QImage GetScreen();
-    QImage GetPatternTable(uint8_t i, uint8_t palette);
-    QImage GetNametable(uint8_t i);
 
     // ==============================================================================
     // CÁC BIẾN TRẠNG THÁI QUAN TRỌNG ĐỂ BUS.CPP VÀ UI GỌI
@@ -42,15 +40,15 @@ public:
     bool nmi_requested = false;
     uint8_t oam_addr = 0x00; // Địa chỉ ghi OAM
 
-    // Cấu trúc 1 Sprite (4 byte)
-    struct sObjectAttributeEntry {
-        uint8_t y;
-        uint8_t id;
-        uint8_t attribute;
-        uint8_t x;
-    } OAM[64]; // Mảng 64 Sprites chứa trong PPU
+    uint8_t OAM[256];
 
 private:
+    uint8_t sprite_count;
+    uint8_t sprite_pattern_lo[8];
+    uint8_t sprite_pattern_hi[8];
+    uint8_t sprite_x[8];
+    uint8_t sprite_attribute[8];
+    bool sprite_zero_being_rendered[8];
     std::shared_ptr<Cartridge> cart;
 
     // ==============================================================================
@@ -91,9 +89,6 @@ private:
     loopy_register tram_addr; // Địa chỉ tạm thời lưu tọa độ (t)
     uint8_t fine_x = 0x00;    // Cuộn ngang pixel lẻ (x)
 
-    // ==============================================================================
-    // BIẾN THỜI GIAN VÀ BỘ CHUYỂN DỊCH (SHIFTERS) ĐỂ VẼ PIXEL
-    // ==============================================================================
     int16_t scanline = 0; // Dòng đang quét (0-261)
     int16_t cycle = 0;    // Chu kỳ hiện tại trên dòng (0-340)
 

@@ -31,34 +31,27 @@ bool Mapper_004::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 // =========================================================
 // 2. HÀM CHO PPU: BỘ LỌC A12 (TỈ LỆ 3) VÀ ĐỌC HÌNH ẢNH (CHR)
 // =========================================================
-bool Mapper_004::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
-    static int nCooldown = 0;
-    if (nCooldown > 0) nCooldown--;
-    bool bA12 = (addr & 0x1000) != 0;
+bool Mapper_004::ppuMapRead(uint16_t addr, uint32_t& mapped_addr)
+{
+    bool A12 = (addr & 0x1000) != 0;
 
-    if (bA12) {
-        if (nA12Delay >= 2) {
-            // CHỈ CHO PHÉP GÕ CHUÔNG NẾU ĐÃ HẾT THỜI GIAN HỒI CHIÊU!
-            if (nCooldown == 0) {
-                if (nIRQCounter == 0 || bIRQUpdate) {
-                    nIRQCounter = nIRQLatch;
-                    bIRQUpdate = false;
-                }
-                else {
-                    nIRQCounter--;
-                }
-
-                if (nIRQCounter == 0 && bIRQEnable) {
-                    bIRQActive = true;
-                }
-
-                nCooldown = 120;
+    if (A12) {
+        if (!bLastA12 && nA12Delay >= 3) {
+            if (nIRQCounter == 0 || bIRQUpdate) {
+                nIRQCounter = nIRQLatch;
+                bIRQUpdate = false;
             }
+            else {
+                nIRQCounter--;
+            }
+            if (nIRQCounter == 0 && bIRQEnable) bIRQActive = true;
         }
-        nA12Delay = 0;
+        bLastA12 = true;
+        nA12Delay = 0; 
     }
     else {
-        if (nA12Delay < 100) nA12Delay++;
+        bLastA12 = false;
+        if (nA12Delay < 255) nA12Delay++;
     }
     // Chia Bank hình ảnh
     if (addr >= 0x0000 && addr <= 0x03FF) { mapped_addr = pCHRBank[0] + (addr & 0x03FF); return true; }
@@ -81,11 +74,7 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
         else {
             pRegister[nTargetRegister] = data;
         }
-
-        // ==============================================================
-        // BÍ QUYẾT LÀ Ở ĐÂY: Đưa toàn bộ code cập nhật Bank ra NGOÀI if-else!
-        // Để bất cứ khi nào CPU chạm vào 0x8000 hay 0x8001, Bank đều được lật NGAY LẬP TỨC!
-        // ==============================================================
+        
         uint32_t num_prg_banks = nPRGBanks * 2;
         uint32_t num_chr_banks = (nCHRBanks == 0) ? 8 : (nCHRBanks * 8);
 
@@ -130,7 +119,6 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
     }
     else if (addr >= 0xA000 && addr <= 0xBFFF) {
         if (!(addr & 0x0001)) {
-            // LẬT MÀN HÌNH CHUẨN: Gán bằng chữ HORIZONTAL hoặc VERTICAL
             if (data & 0x01) mirrormode = MIRROR::HORIZONTAL;
             else mirrormode = MIRROR::VERTICAL;
         }
@@ -144,8 +132,6 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
             nIRQLatch = data;
         }
         else {
-            // TUYỆT ĐỐI KHÔNG ép nIRQCounter = 0 ở đây nữa!
-            // Để cho A12 tự nhiên quyết định nhịp đập!
             bIRQUpdate = true;
         }
         return false;
@@ -180,19 +166,4 @@ void Mapper_004::irqClear() { bIRQActive = false; }
 
 MIRROR Mapper_004::mirror() {
     return mirrormode;
-}
-void Mapper_004::scanline() {
-    // Nếu bị ép reset (Counter = 0) HOẶC có lệnh Update, thì nạp lại Latch
-    if (nIRQCounter == 0 || bIRQUpdate) {
-        nIRQCounter = nIRQLatch;
-        bIRQUpdate = false;
-    }
-    else {
-        nIRQCounter--; // Bình thường thì trừ 1
-    }
-
-    // Gõ chuông
-    if (nIRQCounter == 0 && bIRQEnable) {
-        bIRQActive = true;
-    }
 }

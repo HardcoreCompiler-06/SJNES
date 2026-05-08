@@ -11,6 +11,8 @@ class CPU6502
 public:
     CPU6502();
     ~CPU6502();
+    int irqHandledCount = 0;
+    int irqBlockedCount = 0;
 
 public:
     // Các thanh ghi cốt lõi

@@ -8,7 +8,8 @@
 #include "Mapper_087.h"
 #include "Mapper_185.h"
 #include "Mapper_009.h"
-
+#include "Mapper_001.h"
+#include "Mapper_007.h"
 Cartridge::Cartridge(const std::string& sFileName) {
     // 1. Cấu trúc chuẩn của 16 bytes Header băng NES (iNES Format)
     struct sHeader {
@@ -97,6 +98,13 @@ Cartridge::Cartridge(const std::string& sFileName) {
         case 9:
             pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks);
             break;
+        case 1: 
+            pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks);
+            break;
+        case 7:
+            pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks);
+            break;
+
         }
         if ((header.mapper2 & 0x0C) == 0x08) {
             pMapper->nSubmapper = (header.prg_ram_size >> 4);
@@ -111,67 +119,53 @@ Cartridge::~Cartridge() {}
 // ==============================================================
 
 bool Cartridge::cpuRead(uint16_t addr, uint8_t& data) {
-    uint32_t mapped_addr = 0;
-
-    // Nếu không có Mapper thì dẹp
     if (pMapper == nullptr) return false;
 
+    if (addr >= 0x6000 && addr <= 0x7FFF) {
+        data = PRGRAM[addr & 0x1FFF];
+        return true;
+    }
+
+    uint32_t mapped_addr = 0;
     if (pMapper->cpuMapRead(addr, mapped_addr)) {
-        // --- CHỐT CHẶN BẢO VỆ ROM, ĐỌC TỪ RAM PHỤ ---
-        if (addr >= 0x6000 && addr <= 0x7FFF) {
-            // FIX LỖI MAPPER 4: Trói địa chỉ bằng mặt nạ 0x1FFF
-            data = PRGRAM[addr & 0x1FFF];
-        }
-        else {
-            data = vPRGMemory[mapped_addr];
-        }
+        data = vPRGMemory[mapped_addr];
         return true;
     }
     return false;
 }
 
 bool Cartridge::cpuWrite(uint16_t addr, uint8_t data) {
-    uint32_t mapped_addr = 0;
-
     if (pMapper == nullptr) return false;
 
+    if (addr >= 0x6000 && addr <= 0x7FFF) {
+        PRGRAM[addr & 0x1FFF] = data;
+        return true;
+    }
+
+    uint32_t mapped_addr = 0;
     if (pMapper->cpuMapWrite(addr, mapped_addr, data)) {
-        // --- CHỐT CHẶN BẢO VỆ ROM, GHI VÀO RAM PHỤ ---
-        if (addr >= 0x6000 && addr <= 0x7FFF) {
-            // FIX LỖI MAPPER 4: Trói địa chỉ bằng mặt nạ 0x1FFF
-            PRGRAM[addr & 0x1FFF] = data;
-        }
-        else {
-            vPRGMemory[mapped_addr] = data;
-        }
+        
         return true;
     }
     return false;
 }
+
 bool Cartridge::ppuRead(uint16_t addr, uint8_t& data) {
     uint32_t mapped_addr = 0;
-
-    if (pMapper->ppuMapRead(addr, mapped_addr)) {
-        if (mapped_addr == 0xFFFFFFFF) {          
-            data = addr & 0x00FF;
-        }
-        else {
-            data = vCHRMemory[mapped_addr];
-        }
+    if (pMapper && pMapper->ppuMapRead(addr, mapped_addr)) {
+        data = vCHRMemory[mapped_addr];
         return true;
     }
     return false;
 }
+
 bool Cartridge::ppuWrite(uint16_t addr, uint8_t data) {
     uint32_t mapped_addr = 0;
-
-    if (pMapper == nullptr)
-        return false;
+    if (pMapper == nullptr) return false;
 
     if (pMapper->ppuMapWrite(addr, mapped_addr)) {
         vCHRMemory[mapped_addr] = data;
         return true;
     }
-
     return false;
 }

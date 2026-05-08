@@ -65,7 +65,12 @@ void CPU6502::irq() {
         uint16_t hi = read(addr_abs + 1);
         pc = (hi << 8) | lo;
         cycles = 7;
+        irqHandledCount++;
     }
+    else {
+        irqBlockedCount++;
+    }
+        
 }
 
 void CPU6502::nmi() {

@@ -97,9 +97,11 @@
     <ClCompile Include="CPU6502.cpp" />
     <ClCompile Include="Mapper.cpp" />
     <ClCompile Include="Mapper_000.cpp" />
+    <ClCompile Include="mapper_001.cpp" />
     <ClCompile Include="Mapper_002.cpp" />
     <ClCompile Include="Mapper_003.cpp" />
     <ClCompile Include="Mapper_004.cpp" />
+    <ClCompile Include="Mapper_007.cpp" />
     <ClCompile Include="Mapper_009.cpp" />
     <ClCompile Include="Mapper_087.cpp" />
     <ClCompile Include="Mapper_185.cpp" />
@@ -117,9 +119,11 @@
     <ClInclude Include="CPU6502.h" />
     <ClInclude Include="Mapper.h" />
     <ClInclude Include="Mapper_000.h" />
+    <ClInclude Include="Mapper_001.h" />
     <ClInclude Include="Mapper_002.h" />
     <ClInclude Include="Mapper_003.h" />
     <ClInclude Include="Mapper_004.h" />
+    <ClInclude Include="Mapper_007.h" />
     <ClInclude Include="Mapper_009.h" />
     <ClInclude Include="Mapper_087.h" />
     <ClInclude Include="Mapper_185.h" />

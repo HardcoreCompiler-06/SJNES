@@ -24,10 +24,7 @@ bool Mapper_185::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 
 bool Mapper_185::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
     if (addr <= 0x1FFF) {
-        // ==========================================================
-        // CÔNG THỨC CHUẨN XỊN TỪ FCEUX/NESDEV TRỊ MỌI GAME MAPPER 185
-        // (B-Wings gửi 0x33 -> Mở. Bomb Jack gửi 0x11 -> Mở. Test bảo mật 0x00 -> Khóa)
-        // ==========================================================
+        
         bool bEnable = ((nDummyEnable & 0x0F) != 0 && nDummyEnable != 0x13);
 
         if (bEnable) {

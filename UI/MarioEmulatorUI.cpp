@@ -53,8 +53,6 @@ void MarioEmulatorUI::onOpenROMClicked()
         settings.setValue("LastRomPath", fileInfo.absolutePath());
 
         // 1. Dập cầu dao, dừng hệ thống
-        // (Bên dưới đoạn này anh giữ nguyên toàn bộ code cũ của anh nhé)
-        // 1. Dập cầu dao, dừng hệ thống
         timer->stop();
         system_clock_counter = 0;
         dma_dummy_counter = 0;
@@ -77,6 +75,11 @@ void MarioEmulatorUI::onOpenROMClicked()
         nes_ppu.reset();
         if (cart->pMapper != nullptr) cart->pMapper->reset();
         nes_cpu.reset();
+        uint8_t irqLo = nes_bus.cpuRead(0xFFFE);
+        uint8_t irqHi = nes_bus.cpuRead(0xFFFF);
+        uint16_t irqVec = (irqHi << 8) | irqLo;
+        ui.txtConsole->appendPlainText(
+            QString("IRQ Vector: 0x%1").arg(irqVec, 4, 16, QChar('0')).toUpper());
 
         // 5. In log ra màn hình
         ui.txtConsole->appendPlainText(">>> DA NAP ROM VA RESET HE THONG: " + fileName);
@@ -100,9 +103,7 @@ void MarioEmulatorUI::onStepClicked() {
     }
 }
 
-// =======================================================================
 // TRÁI TIM GIẢ LẬP: CHẠY 1 KHUNG HÌNH (CHUẨN OLC CYCLE)
-// =======================================================================
 void MarioEmulatorUI::runFrame() {
     static QByteArray audio_buffer;
     static double audio_accumulator = 0.0;
@@ -150,10 +151,8 @@ void MarioEmulatorUI::runFrame() {
             }
         }
 
-        // ==========================================================
-        // 3. XỬ LÝ NGẮT (NMI & IRQ) - TỰ DO VÀ TỨC THỜI!
-        // ==========================================================
 
+         //ngắt irq
         if (nes_bus.ppu->nmi_requested) {
             nes_bus.ppu->nmi_requested = false;
             nes_cpu.nmi();
@@ -162,11 +161,12 @@ void MarioEmulatorUI::runFrame() {
         if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr) {
             if (nes_bus.cart->pMapper->irqState()) {
                 nes_cpu.irq();
-            } // <--- Ngoặc số 1 (Đóng if irqState)
-        } // <--- Ngoặc số 2 (Đóng if cart) (ANH ĐÃ XÓA NHẦM THẰNG NÀY ĐÂY NÀY!)
+                nes_bus.cart->pMapper->irqClear();
+            }
+        } 
 
         system_clock_counter++;
-    } // <--- Ngoặc số 3 (Đóng vòng lặp while của giả lập)
+    } 
 
     // Đẩy âm thanh ra loa
     if (audio_device != nullptr && !audio_buffer.isEmpty()) {

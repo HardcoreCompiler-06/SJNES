@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
 
-// ĐỂ ENUM Ở ĐÂY LÀ CHUẨN NHẤT, AI CŨNG DÙNG ĐƯỢC
 enum MIRROR {
     HARDWARE,
     HORIZONTAL,

@@ -76,6 +76,12 @@
     <ClCompile Include="Mapper_009.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="mapper_001.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Mapper_007.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PPU.h">
@@ -115,6 +121,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Mapper_009.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Mapper_001.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Mapper_007.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

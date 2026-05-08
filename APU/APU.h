@@ -20,8 +20,26 @@ public:
     uint8_t cpuRead(uint16_t addr);
     void Step();
     float GetOutputSample();
-
+    uint8_t readStatus() {
+        uint8_t status = 0x00;
+        if (pulse1.length_counter > 0)   status |= 0x01;
+        if (pulse2.length_counter > 0)   status |= 0x02;
+        if (triangle.length_counter > 0) status |= 0x04;
+        if (noise.length_counter > 0)    status |= 0x08;
+        if (dmc.bytes_remaining > 0)     status |= 0x10;
+        return status;
+    }
 private:
+    float triangle_smooth = 0.0f;
+    int  frame_seq_count = 0;
+    int  step_mode = 0;
+    bool use_5step_mode = false;
+    bool apu_half_clock = false;
+
+    // Filter state — member variables (không dùng static, reset sạch khi restart)
+    float hp1 = 0.0f, prev_in1 = 0.0f;
+    float hp2 = 0.0f, prev_in2 = 0.0f;
+    float lp = 0.0f;
     bool pulse1_enabled = false;
     bool pulse2_enabled = false;
     bool triangle_enabled = false;

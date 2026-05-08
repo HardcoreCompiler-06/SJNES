@@ -85,7 +85,7 @@ uint8_t PPU::cpuRead(uint16_t addr, bool rdonly) {
             status &= ~0x80; address_latch = 0;
             break;
         case 0x0003: break;
-        case 0x0004: data = ((uint8_t*)OAM)[oam_addr]; break;
+        case 0x0004: data = OAM[oam_addr]; break;
         case 0x0005: break;
         case 0x0006: break;
         case 0x0007:
@@ -102,14 +102,20 @@ uint8_t PPU::cpuRead(uint16_t addr, bool rdonly) {
 void PPU::cpuWrite(uint16_t addr, uint8_t data) {
     switch (addr) {
     case 0x0000:
+    {
+        bool nmi_was_enabled = (ppu_ctrl & 0x80) > 0;
         ppu_ctrl = data;
         tram_addr.nametable_x = ppu_ctrl & 0x01;
         tram_addr.nametable_y = (ppu_ctrl & 0x02) >> 1;
-        break;
+        if (!nmi_was_enabled && (ppu_ctrl & 0x80) && (status & 0x80)) {
+            nmi_requested = true;
+        }
+    }
+    break;
     case 0x0001: ppu_mask = data; break;
     case 0x0002: break;
     case 0x0003: oam_addr = data; break;
-    case 0x0004: ((uint8_t*)OAM)[oam_addr] = data; break;
+    case 0x0004: OAM[oam_addr] = data; oam_addr++; break;
     case 0x0005:
         if (address_latch == 0) {
             fine_x = data & 0x07; tram_addr.coarse_x = data >> 3; address_latch = 1;
@@ -135,15 +141,14 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
     }
 }
 
-// ==============================================================================
-// GIAO TIẾP VỚI BUS BỘ NHỚ PPU
-// ==============================================================================
+//BỘ NHỚ BUS GIAO TIẾP VỚI CARD ĐỒ HỌA
 uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
     uint8_t data = 0x00;
     addr &= 0x3FFF;
 
     if (cart && cart->ppuRead(addr, data)) return data;
-    else if (addr <= 0x1FFF) data = tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF];
+    else if (addr <= 0x1FFF)
+        data = tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF];
     else if (addr >= 0x2000 && addr <= 0x3EFF) {
         addr &= 0x0FFF;
         MIRROR m = cart->mirror;
@@ -165,6 +170,12 @@ uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
             else if (addr <= 0x0BFF) data = tblName[1][addr & 0x03FF];
             else data = tblName[1][addr & 0x03FF];
         }
+        else if (m == MIRROR::ONESCREEN_LO) {
+            data = tblName[0][addr & 0x03FF];
+        }
+        else if (m == MIRROR::ONESCREEN_HI) {
+            data = tblName[1][addr & 0x03FF];
+        }
     }
     else if (addr >= 0x3F00) {
         addr &= 0x001F;
@@ -172,6 +183,7 @@ uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
         if (addr == 0x0018) addr = 0x0008; if (addr == 0x001C) addr = 0x000C;
         data = tblPalette[addr] & 0x3F;
     }
+
     return data;
 }
 
@@ -179,7 +191,8 @@ void PPU::ppuWrite(uint16_t addr, uint8_t data) {
     addr &= 0x3FFF;
 
     if (cart && cart->ppuWrite(addr, data)) return;
-    else if (addr <= 0x1FFF) tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF] = data;
+    else if (addr <= 0x1FFF)
+        tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF] = data;
     else if (addr >= 0x2000 && addr <= 0x3EFF) {
         addr &= 0x0FFF;
         MIRROR m = cart->mirror;
@@ -203,6 +216,13 @@ void PPU::ppuWrite(uint16_t addr, uint8_t data) {
             else if (addr <= 0x0BFF) tblName[1][addr & 0x03FF] = data;
             else tblName[1][addr & 0x03FF] = data;
         }
+        else if (m == MIRROR::ONESCREEN_LO) {
+            tblName[0][addr & 0x03FF] = data;
+        }
+        else if (m == MIRROR::ONESCREEN_HI) {
+            tblName[1][addr & 0x03FF] = data;
+        }
+
     }
     else if (addr >= 0x3F00) {
         addr &= 0x001F;
@@ -212,9 +232,7 @@ void PPU::ppuWrite(uint16_t addr, uint8_t data) {
     }
 }
 
-// ==============================================================================
-// CÁC HÀM XỬ LÝ THANH GHI DỊCH (Đã tách ra để hết cảnh báo)
-// ==============================================================================
+
 void PPU::LoadBackgroundShifters() {
     bg_shifter_pattern_lo = (bg_shifter_pattern_lo & 0xFF00) | bg_next_tile_lsb;
     bg_shifter_pattern_hi = (bg_shifter_pattern_hi & 0xFF00) | bg_next_tile_msb;
@@ -229,9 +247,7 @@ void PPU::UpdateShifters() {
     }
 }
 
-// ==============================================================================
-// TRÁI TIM CỦA PPU
-// ==============================================================================
+//PHẦN CHÍNH CỦA CARD ĐỒ HỌA
 void PPU::Step() {
     auto lam_IncScrollX = [&]() {
         if (ppu_mask & 0x18) {
@@ -257,20 +273,61 @@ void PPU::Step() {
         if (scanline == -1 && cycle == 1) status &= ~0xE0;
         if ((cycle >= 2 && cycle < 258) || (cycle >= 321 && cycle < 338)) {
             UpdateShifters();
-            switch ((cycle - 1) % 8) {
-            case 0: LoadBackgroundShifters(); bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF)); break;
-            case 2: bg_next_tile_attrib = ppuRead(0x23C0 | (vram_addr.nametable_y << 11) | (vram_addr.nametable_x << 10) | ((vram_addr.coarse_y >> 2) << 3) | (vram_addr.coarse_x >> 2));
-                if (vram_addr.coarse_y & 0x02) bg_next_tile_attrib >>= 4;
-                if (vram_addr.coarse_x & 0x02) bg_next_tile_attrib >>= 2;
-                bg_next_tile_attrib &= 0x03; break;
-            case 4: bg_next_tile_lsb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 0); break;
-            case 6: bg_next_tile_msb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 8); break;
-            case 7: lam_IncScrollX(); break;
+
+            if (ppu_mask & 0x18) {
+                switch ((cycle - 1) % 8) {
+                case 0: LoadBackgroundShifters(); bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF)); break;
+                case 2: bg_next_tile_attrib = ppuRead(0x23C0 | (vram_addr.nametable_y << 11) | (vram_addr.nametable_x << 10) | ((vram_addr.coarse_y >> 2) << 3) | (vram_addr.coarse_x >> 2));
+                    if (vram_addr.coarse_y & 0x02) bg_next_tile_attrib >>= 4;
+                    if (vram_addr.coarse_x & 0x02) bg_next_tile_attrib >>= 2;
+                    bg_next_tile_attrib &= 0x03; break;
+                case 4: bg_next_tile_lsb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 0); break;
+                case 6: bg_next_tile_msb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 8); break;
+                case 7: lam_IncScrollX(); break;
+                }
             }
         }
         if (cycle == 256) lam_IncScrollY();
-        if (cycle == 257) { LoadBackgroundShifters(); lam_TransAddrX(); }
-        if (cycle == 338 || cycle == 340) bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF));
+        if (cycle == 257) {
+            LoadBackgroundShifters(); lam_TransAddrX();
+
+            if (ppu_mask & 0x18) {
+                sprite_count = 0;
+                for (int i = 0; i < 64 && sprite_count < 8; i++) {
+                    uint8_t sprite_y = OAM[i * 4 + 0];
+                    uint8_t sprite_id = OAM[i * 4 + 1];
+                    uint8_t sprite_attr = OAM[i * 4 + 2];
+                    uint8_t sprite_x_pos = OAM[i * 4 + 3];
+
+                    int diffY = scanline - sprite_y;
+                    int spriteHeight = (ppu_ctrl & 0x20) ? 16 : 8;
+                    if (diffY >= 0 && diffY < spriteHeight) {
+                        uint8_t flipY = (sprite_attr & 0x80) > 0;
+                        int row = flipY ? (spriteHeight - 1 - diffY) : diffY;
+                        uint16_t pattern_addr = 0;
+                        if (spriteHeight == 8)
+                            pattern_addr = ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) | ((uint16_t)sprite_id << 4) | row;
+                        else pattern_addr = ((sprite_id & 0x01) ? 0x1000 : 0x0000) | ((uint16_t)(sprite_id & 0xFE) << 4) | ((row >= 8) ? (row + 8) : row);
+
+                        sprite_pattern_lo[sprite_count] = ppuRead(pattern_addr);
+                        sprite_pattern_hi[sprite_count] = ppuRead(pattern_addr + 8);
+                        sprite_x[sprite_count] = sprite_x_pos;
+                        sprite_attribute[sprite_count] = sprite_attr;
+                        sprite_zero_being_rendered[sprite_count] = (i == 0);
+                        sprite_count++;
+                    }
+                }
+                for (int i = sprite_count; i < 8; i++) {
+                    uint16_t dummy_addr = ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) | (0xFF << 4);
+                    ppuRead(dummy_addr);
+                    ppuRead(dummy_addr + 8);
+                }
+            }
+        }
+        // CHỐT CHẶN 3: Lọc nốt 2 nhịp đọc rác cuối dòng
+        if (cycle == 338 || cycle == 340) {
+            if (ppu_mask & 0x18) bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF));
+        }
         if (scanline == -1 && cycle >= 280 && cycle < 305) lam_TransAddrY();
     }
 
@@ -286,35 +343,36 @@ void PPU::Step() {
 
         uint8_t fg_pixel = 0x00; uint8_t fg_palette = 0x00; uint8_t fg_priority = 0; bool bSpriteZeroBeingRendered = false;
         if (ppu_mask & 0x10) {
-            for (int i = 0; i < 64; i++) {
-                int diffX = (cycle - 1) - OAM[i].x; int diffY = scanline - OAM[i].y; int spriteHeight = (ppu_ctrl & 0x20) ? 16 : 8;
-                if (diffX >= 0 && diffX < 8 && diffY >= 0 && diffY < spriteHeight) {
-                    uint8_t flipX = (OAM[i].attribute & 0x40) > 0; uint8_t flipY = (OAM[i].attribute & 0x80) > 0;
-                    int row = flipY ? (spriteHeight - 1 - diffY) : diffY; int col = flipX ? (7 - diffX) : diffX;
-                    uint16_t pattern_addr = 0;
-                    if (spriteHeight == 8) pattern_addr = ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) | ((uint16_t)OAM[i].id << 4) | row;
-                    else pattern_addr = ((OAM[i].id & 0x01) ? 0x1000 : 0x0000) | ((uint16_t)(OAM[i].id & 0xFE) << 4) | ((row >= 8) ? (row + 8) : row);
+            for (int i = 0; i < sprite_count; i++) {
+                int diffX = (cycle - 1) - sprite_x[i];
+                if (diffX >= 0 && diffX < 8) {
+                    uint8_t flipX = (sprite_attribute[i] & 0x40) > 0;
+                    int col = flipX ? (7 - diffX) : diffX;
+                    uint8_t bit_mux = 0x80 >> col;
 
-                    uint8_t pattern_lo = ppuRead(pattern_addr); uint8_t pattern_hi = ppuRead(pattern_addr + 8); uint8_t bit_mux = 0x80 >> col;
-                    if ((pattern_lo & bit_mux) || (pattern_hi & bit_mux)) {
-                        uint8_t p0_pixel = (pattern_lo & bit_mux) > 0; uint8_t p1_pixel = (pattern_hi & bit_mux) > 0;
+                    if ((sprite_pattern_lo[i] & bit_mux) || (sprite_pattern_hi[i] & bit_mux)) {
+                        uint8_t p0_pixel = (sprite_pattern_lo[i] & bit_mux) > 0;
+                        uint8_t p1_pixel = (sprite_pattern_hi[i] & bit_mux) > 0;
                         fg_pixel = (p1_pixel << 1) | p0_pixel;
-                        fg_palette = (OAM[i].attribute & 0x03) + 0x04; fg_priority = (OAM[i].attribute & 0x20) == 0;
-                        if (i == 0) bSpriteZeroBeingRendered = true;
+                        fg_palette = (sprite_attribute[i] & 0x03) + 0x04;
+                        fg_priority = (sprite_attribute[i] & 0x20) == 0;
+                        bSpriteZeroBeingRendered = sprite_zero_being_rendered[i];
                         break;
                     }
                 }
             }
-        }
+            if (!(ppu_mask & 0x02) && (cycle >= 1 && cycle <= 8)) bg_pixel = 0;
+            if (!(ppu_mask & 0x04) && (cycle >= 1 && cycle <= 8)) fg_pixel = 0;
+        } // ← đóng if (ppu_mask & 0x10) ở đây
 
+        // Sprite zero hit nằm NGOÀI
         if (bSpriteZeroBeingRendered && (ppu_mask & 0x18) == 0x18) {
-            if (cycle >= 1 && cycle <= 255) { // Tránh lỗi mép màn hình
+            if (cycle >= 1 && cycle < 255) { // ← đổi <= thành 
                 if (bg_pixel > 0 && fg_pixel > 0) {
                     status |= 0x40;
                 }
             }
         }
-
         uint8_t final_pixel = 0; uint8_t final_palette = 0;
         if (bg_pixel == 0 && fg_pixel == 0) { final_pixel = 0; final_palette = 0; }
         else if (bg_pixel == 0 && fg_pixel > 0) { final_pixel = fg_pixel; final_palette = fg_palette; }
@@ -338,12 +396,21 @@ void PPU::Step() {
         status |= 0x80;
         if (ppu_ctrl & 0x80) nmi_requested = true;
     }
+
     cycle++;
     if (cycle >= 341) {
-        cycle = 0; scanline++;
-        if (scanline >= 261) scanline = -1;
+        cycle = 0;
+        scanline++;
+        if (scanline >= 261) {
+            scanline = -1;
+        }
+        else if (scanline >= 0 && cart && cart->pMapper) {
+            cart->pMapper->scanline();
+        }
     }
+    
 }
+
 // ==============================================================================
 // HÀM XUẤT HÌNH ẢNH RA GIAO DIỆN QT (UI)
 // ==============================================================================

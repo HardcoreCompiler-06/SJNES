@@ -20,7 +20,6 @@ public:
     bool irqState() override;
     void irqClear() override;
 
-    void scanline() override;
 private:
 
     MIRROR mirrormode = MIRROR::HORIZONTAL;

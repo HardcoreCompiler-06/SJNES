@@ -32,6 +32,7 @@ private slots:
     void runFrame(); // Vòng lặp chính chạy mỗi 1/60 giây (60 FPS)
 
 private:
+    bool pendingIRQClear = false;
     Ui::MarioEmulatorUIClass ui;
 
     // Các thiết bị NES
