@@ -103,6 +103,10 @@
     <ClCompile Include="Mapper_004.cpp" />
     <ClCompile Include="Mapper_007.cpp" />
     <ClCompile Include="Mapper_009.cpp" />
+    <ClCompile Include="Mapper_021.cpp" />
+    <ClCompile Include="Mapper_023.cpp" />
+    <ClCompile Include="Mapper_024.cpp" />
+    <ClCompile Include="Mapper_024.h" />
     <ClCompile Include="Mapper_087.cpp" />
     <ClCompile Include="Mapper_185.cpp" />
     <ClCompile Include="PPU.cpp" />
@@ -114,9 +118,14 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="APU.h" />
+    <ClInclude Include="ApuEnvelope.h" />
     <ClInclude Include="Bus.h" />
     <ClInclude Include="Cartridge.h" />
     <ClInclude Include="CPU6502.h" />
+    <ClInclude Include="DMC.h" />
+    <ClInclude Include="F1.h" />
+    <ClInclude Include="F2.h" />
+    <ClInclude Include="LogBuffer.h" />
     <ClInclude Include="Mapper.h" />
     <ClInclude Include="Mapper_000.h" />
     <ClInclude Include="Mapper_001.h" />
@@ -125,9 +134,13 @@
     <ClInclude Include="Mapper_004.h" />
     <ClInclude Include="Mapper_007.h" />
     <ClInclude Include="Mapper_009.h" />
+    <ClInclude Include="Mapper_021.h" />
+    <ClInclude Include="Mapper_023.h" />
     <ClInclude Include="Mapper_087.h" />
     <ClInclude Include="Mapper_185.h" />
+    <ClInclude Include="Noise.h" />
     <ClInclude Include="PPU.h" />
+    <ClInclude Include="Triangle.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

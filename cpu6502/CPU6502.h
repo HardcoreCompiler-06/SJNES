@@ -24,9 +24,22 @@ public:
     uint8_t  status = 0x00;
 
     void reset();
-    void irq();
+    void irq();   // Compatibility: one-shot IRQ request
     void nmi();
     void clock();
+
+    // IRQ line/source style, closer to NES/Mesen behavior.
+    // Mapper MMC3 should call SetIrqSource(IRQ_EXTERNAL) when IRQ line is asserted
+    // and ClearIrqSource(IRQ_EXTERNAL) on $E000/acknowledge.
+    enum IRQSource : uint8_t
+    {
+        IRQ_EXTERNAL = 1 << 0,
+        IRQ_APU      = 1 << 1,
+        IRQ_DMC      = 1 << 2,
+    };
+    void SetIrqSource(uint8_t source);
+    void ClearIrqSource(uint8_t source);
+    bool IsIrqActive() const;
 
     void ConnectBus(Bus* n) { bus = n; }
 
@@ -45,7 +58,9 @@ public:
 private:
     uint8_t GetFlag(FLAGS6502 f);
     void    SetFlag(FLAGS6502 f, bool v);
-
+    bool nmi_pending = false;
+    bool irq_pending = false; // one-shot compatibility IRQ
+    uint8_t irq_sources = 0;  // held IRQ lines: mapper/APU/DMC
     uint8_t  fetched = 0x00;
     uint16_t temp = 0x0000;
     uint16_t addr_abs = 0x0000;
@@ -71,7 +86,6 @@ private:
     uint8_t IMP(); uint8_t IMM(); uint8_t ZPG(); uint8_t ZPX();
     uint8_t ZPY(); uint8_t REL(); uint8_t ABS(); uint8_t ABX();
     uint8_t ABY(); uint8_t IND(); uint8_t IZX(); uint8_t IZY();
-
     uint8_t ADC(); uint8_t AND(); uint8_t ASL(); uint8_t BCC();
     uint8_t BCS(); uint8_t BEQ(); uint8_t BIT(); uint8_t BMI();
     uint8_t BNE(); uint8_t BPL(); uint8_t BRK(); uint8_t BVC();
@@ -86,9 +100,7 @@ private:
     uint8_t SEC(); uint8_t SED(); uint8_t SEI(); uint8_t STA();
     uint8_t STX(); uint8_t STY(); uint8_t TAX(); uint8_t TAY();
     uint8_t TSX(); uint8_t TXA(); uint8_t TXS(); uint8_t TYA();
-
     uint8_t XXX();
 };
 
-// CHỈ KHAI BÁO TÊN HÀM Ở ĐÂY THÔI:
 std::string hex(uint32_t n, uint8_t d);

@@ -25,11 +25,12 @@ public:
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
-
+    void resizeEvent(QResizeEvent* event) override;
 private slots:
     void onOpenROMClicked();
     void onStepClicked();
-    void runFrame(); // Vòng lặp chính chạy mỗi 1/60 giây (60 FPS)
+    void onStereoToggled(bool checked);
+    void runFrame();
 
 private:
     bool pendingIRQClear = false;
@@ -50,4 +51,5 @@ private:
     // Hệ thống âm thanh
     QAudioSink* audio_sink = nullptr;
     QIODevice* audio_device = nullptr;
+    bool is_stereo = true;
 };

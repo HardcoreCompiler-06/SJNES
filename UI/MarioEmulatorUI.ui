@@ -30,8 +30,8 @@
    <widget class="QPlainTextEdit" name="txtConsole">
     <property name="geometry">
      <rect>
-      <x>780</x>
-      <y>0</y>
+      <x>0</x>
+      <y>20</y>
       <width>101</width>
       <height>71</height>
      </rect>
@@ -48,6 +48,25 @@
     </property>
     <property name="text">
      <string>step</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btnStereo">
+    <property name="geometry">
+     <rect>
+      <x>180</x>
+      <y>0</y>
+      <width>90</width>
+      <height>24</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>🔊 Stereo</string>
+    </property>
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+    <property name="checked">
+     <bool>true</bool>
     </property>
    </widget>
    <widget class="QLabel" name="gameScreen">

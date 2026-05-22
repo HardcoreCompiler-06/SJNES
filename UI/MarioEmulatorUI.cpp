@@ -5,7 +5,7 @@
 #include <QFileDialog>
 #include <QSettings>
 #include <QFileInfo>
-
+#include "LogBuffer.h"
 MarioEmulatorUI::MarioEmulatorUI(QWidget* parent)
     : QMainWindow(parent)
 {
@@ -13,12 +13,13 @@ MarioEmulatorUI::MarioEmulatorUI(QWidget* parent)
 
     // BƯỚC 1: HÀN DÂY PHẦN CỨNG
     nes_cpu.ConnectBus(&nes_bus);
+    nes_bus.cpu = &nes_cpu;
     nes_bus.ppu = &nes_ppu;
 
     // BƯỚC 2: KẾT NỐI NÚT BẤM GIAO DIỆN
     connect(ui.btnOpenROM, &QPushButton::clicked, this, &MarioEmulatorUI::onOpenROMClicked);
     connect(ui.btnStep, &QPushButton::clicked, this, &MarioEmulatorUI::onStepClicked);
-
+    connect(ui.btnStereo, &QPushButton::toggled, this, &MarioEmulatorUI::onStereoToggled);
     // BƯỚC 3: LẮP ĐỘNG CƠ HÌNH ẢNH (60 FPS ~ 16ms/frame)
     timer = new QTimer(this);
     timer->setTimerType(Qt::PreciseTimer);
@@ -27,7 +28,7 @@ MarioEmulatorUI::MarioEmulatorUI(QWidget* parent)
     // BƯỚC 4: LẮP ĐỘNG CƠ ÂM THANH
     QAudioFormat format;
     format.setSampleRate(44100);
-    format.setChannelCount(1);
+    format.setChannelCount(2);
     format.setSampleFormat(QAudioFormat::Float);
     audio_sink = new QAudioSink(format, this);
     audio_sink->setBufferSize(32768);
@@ -42,7 +43,7 @@ MarioEmulatorUI::~MarioEmulatorUI() {}
 void MarioEmulatorUI::onOpenROMClicked()
 {
     // --- MA THUẬT GHI NHỚ ĐƯỜNG DẪN BẰNG QSETTINGS ---
-    QSettings settings("AnhYeuStudio", "NesEmulator");
+    QSettings settings("chienz", "NesEmulator");
     QString lastPath = settings.value("LastRomPath", "D:\\").toString();
 
     QString fileName = QFileDialog::getOpenFileName(this, "Chọn ROM", lastPath, "NES Files (*.nes)");
@@ -108,23 +109,28 @@ void MarioEmulatorUI::runFrame() {
     static QByteArray audio_buffer;
     static double audio_accumulator = 0.0;
 
-    // Chống tràn loa
     if (audio_sink != nullptr && audio_sink->bytesFree() < 4096) {
         return;
     }
 
-    // Một khung hình NES có chính xác 89342 chu kỳ PPU
     const int PPU_CYCLES_PER_FRAME = 89342;
 
     for (int i = 0; i < PPU_CYCLES_PER_FRAME; i++) {
 
-        // 1. PPU LUÔN CHẠY TRƯỚC (Nhanh gấp 3 lần CPU)
         nes_bus.ppu->Step();
 
-        // 2. CPU VÀ APU CHẠY CHẬM (Cứ 3 nhịp PPU thì CPU mới được chạy 1 nhịp)
         if (system_clock_counter % 3 == 0) {
 
-            // --- Xử lý DMA ---
+            // VRC6 IRQ/audio chạy mỗi CPU cycle, đặt TRƯỚC CPU clock
+            if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr) {
+                nes_bus.cart->pMapper->irqStep();
+
+                if (nes_bus.cart->pMapper->irqState()) {
+                    nes_bus.cart->pMapper->irqClear();
+                    nes_cpu.irq();
+                }
+            }
+
             if (nes_bus.dma_transfer) {
                 if (dma_dummy_counter < 512) {
                     dma_dummy_counter++;
@@ -134,55 +140,99 @@ void MarioEmulatorUI::runFrame() {
                     dma_dummy_counter = 0;
                 }
             }
-            // --- Lấy và chạy lệnh CPU ---
             else {
                 nes_cpu.clock();
             }
 
-            // --- Chạy APU ---
             nes_bus.n_apu.Step();
 
-            // --- THU THẬP ÂM THANH (Giữ nguyên code gốc của anh) ---
             audio_accumulator += 44100.0 / 1789773.0;
             if (audio_accumulator >= 1.0) {
                 audio_accumulator -= 1.0;
-                float sample = nes_bus.n_apu.GetOutputSample();
-                audio_buffer.append(reinterpret_cast<const char*>(&sample), sizeof(float));
+
+                if (is_stereo) {
+                    float left, right;
+                    nes_bus.n_apu.GetOutputSampleStereo(left, right);
+
+                    float exp = 0.0f;
+                    if (nes_bus.cart && nes_bus.cart->pMapper) {
+                        exp = nes_bus.cart->pMapper->GetExpansionAudio();
+                    }
+
+                    left += exp;
+                    right += exp;
+
+                    audio_buffer.append(reinterpret_cast<const char*>(&left), sizeof(float));
+                    audio_buffer.append(reinterpret_cast<const char*>(&right), sizeof(float));
+                }
+                else {
+                    float sample = nes_bus.n_apu.GetOutputSample();
+
+                    if (nes_bus.cart && nes_bus.cart->pMapper) {
+                        sample += nes_bus.cart->pMapper->GetExpansionAudio();
+                    }
+
+                    audio_buffer.append(reinterpret_cast<const char*>(&sample), sizeof(float));
+                }
             }
         }
 
-
-         //ngắt irq
+     
         if (nes_bus.ppu->nmi_requested) {
             nes_bus.ppu->nmi_requested = false;
             nes_cpu.nmi();
         }
 
-        if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr) {
-            if (nes_bus.cart->pMapper->irqState()) {
-                nes_cpu.irq();
-                nes_bus.cart->pMapper->irqClear();
-            }
-        } 
-
         system_clock_counter++;
     } 
 
-    // Đẩy âm thanh ra loa
+
     if (audio_device != nullptr && !audio_buffer.isEmpty()) {
         audio_device->write(audio_buffer.data(), audio_buffer.size());
         audio_buffer.clear();
+    
     }
 
-    // VẼ KHUNG HÌNH LÊN GIAO DIỆN QT
     QImage frameImage = nes_bus.ppu->GetScreen();
-    QImage scaledImage = frameImage.scaled(ui.gameScreen->size(), Qt::KeepAspectRatio);
+    ui.gameScreen->setAlignment(Qt::AlignCenter);
+    QImage scaledImage = frameImage.scaled(ui.gameScreen->size(), Qt::KeepAspectRatio, Qt::FastTransformation);
+
     ui.gameScreen->setPixmap(QPixmap::fromImage(scaledImage));
 
-} // <=== NGOẶC SỐ 4 TỐI QUAN TRỌNG: ĐÓNG HÀM runFrame()!
-// =======================================================================
+    for (auto& msg : gLogBuffer) {
+        ui.txtConsole->appendPlainText(QString::fromStdString(msg));
+    }
+    gLogBuffer.clear();
+
+} 
+void MarioEmulatorUI::onStereoToggled(bool checked) {
+    is_stereo = checked;
+    ui.btnStereo->setText(checked ? "🔊 Stereo" : "🔈 Mono");
+
+    // Restart audio sink với đúng channel count
+    if (audio_sink) {
+        audio_sink->stop();
+        delete audio_sink;
+        audio_sink = nullptr;
+    }
+    QAudioFormat format;
+    format.setSampleRate(44100);
+    format.setChannelCount(is_stereo ? 2 : 1);
+    format.setSampleFormat(QAudioFormat::Float);
+    audio_sink = new QAudioSink(format, this);
+    audio_sink->setBufferSize(32768);
+    audio_device = audio_sink->start();
+}
+void MarioEmulatorUI::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+
+    int w = ui.centralWidget->width();
+    int h = ui.centralWidget->height();
+
+    // Ép khung gameScreen giãn hết cỡ, chừa lại 30 pixel cho thanh công cụ
+    ui.gameScreen->setGeometry(0, 30, w, h - 30);
+}
 // XỬ LÝ PHÍM BẤM
-// =======================================================================
 void MarioEmulatorUI::keyPressEvent(QKeyEvent* event) {
     if (event->isAutoRepeat()) return;
     if (event->key() == Qt::Key_K)      nes_bus.controller_state |= 0x80;

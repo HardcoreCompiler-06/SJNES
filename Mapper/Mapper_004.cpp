@@ -1,5 +1,5 @@
 #include "Mapper_004.h"
-
+#include <Qdebug>
 Mapper_004::Mapper_004(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) {
     reset();
 }
@@ -10,10 +10,12 @@ void Mapper_004::reset() {
     nTargetRegister = 0; bPRGBankMode = false; bCHRInversion = false; mirrormode = MIRROR::HORIZONTAL;
     bIRQActive = false; bIRQEnable = false; bIRQUpdate = false;
     nIRQCounter = 0; nIRQLatch = 0;
-    bLastA12 = false;
-    nA12Delay = 0;
 
-    for (int i = 0; i < 8; i++) { pRegister[i] = 0; pCHRBank[i] = 0; }
+    for (int i = 0; i < 8; i++)
+    {
+        pRegister[i] = 0;
+        pCHRBank[i] = i * 0x0400;
+    }
     pPRGBank[0] = 0 * 0x2000;
     pPRGBank[1] = 1 * 0x2000;
     pPRGBank[2] = (nPRGBanks * 2 - 2) * 0x2000;
@@ -33,26 +35,6 @@ bool Mapper_004::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 // =========================================================
 bool Mapper_004::ppuMapRead(uint16_t addr, uint32_t& mapped_addr)
 {
-    bool A12 = (addr & 0x1000) != 0;
-
-    if (A12) {
-        if (!bLastA12 && nA12Delay >= 3) {
-            if (nIRQCounter == 0 || bIRQUpdate) {
-                nIRQCounter = nIRQLatch;
-                bIRQUpdate = false;
-            }
-            else {
-                nIRQCounter--;
-            }
-            if (nIRQCounter == 0 && bIRQEnable) bIRQActive = true;
-        }
-        bLastA12 = true;
-        nA12Delay = 0; 
-    }
-    else {
-        bLastA12 = false;
-        if (nA12Delay < 255) nA12Delay++;
-    }
     // Chia Bank hình ảnh
     if (addr >= 0x0000 && addr <= 0x03FF) { mapped_addr = pCHRBank[0] + (addr & 0x03FF); return true; }
     if (addr >= 0x0400 && addr <= 0x07FF) { mapped_addr = pCHRBank[1] + (addr & 0x03FF); return true; }
@@ -160,7 +142,27 @@ bool Mapper_004::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     if (addr >= 0x1C00 && addr <= 0x1FFF) { mapped_addr = pCHRBank[7] + (addr & 0x03FF); return true; }
     return false;
 }
+// MMC3 IRQ must be held as an IRQ source/line.
+// Do not discard IRQ just because I flag is currently set,
+// otherwise split-screen HUD may jitter in games like "Contra Force".
+//lỗi hud có thể do CPU sai(mất 7 tháng để tìm ra lỗi)
+void Mapper_004::ClockA12()
+{
+    if (nIRQCounter == 0 || bIRQUpdate)
+    {
+        nIRQCounter = nIRQLatch;
+        bIRQUpdate = false;
+    }
+    else
+    {
+        nIRQCounter--;
+    }
 
+    if (nIRQCounter == 0 && bIRQEnable)
+    {
+        bIRQActive = true;
+    }
+}
 bool Mapper_004::irqState() { return bIRQActive; }
 void Mapper_004::irqClear() { bIRQActive = false; }
 

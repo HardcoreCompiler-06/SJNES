@@ -1,6 +1,6 @@
 #include "PPU.h"
 #include "Mapper_004.h"
-
+#include <QDebug>
 // ==============================================================================
 // KHỞI TẠO PPU & BẢNG MÀU
 // ==============================================================================
@@ -57,6 +57,12 @@ void PPU::reset() {
     bg_shifter_attrib_lo = 0x0000; bg_shifter_attrib_hi = 0x0000;
     status = 0x00; ppu_mask = 0x00; ppu_ctrl = 0x00;
     vram_addr.reg = 0x0000; tram_addr.reg = 0x0000;
+    mapper_a12 = false;
+    mapper_a12_low_cycles = 255;
+    for (int i = 0; i < 256 * 240; i++)
+    {
+        frame_pixels[i] = palScreen[0x0F].rgb();
+    }
 }
 
 // ==============================================================================
@@ -104,6 +110,7 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
     case 0x0000:
     {
         bool nmi_was_enabled = (ppu_ctrl & 0x80) > 0;
+
         ppu_ctrl = data;
         tram_addr.nametable_x = ppu_ctrl & 0x01;
         tram_addr.nametable_y = (ppu_ctrl & 0x02) >> 1;
@@ -116,14 +123,22 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
     case 0x0002: break;
     case 0x0003: oam_addr = data; break;
     case 0x0004: OAM[oam_addr] = data; oam_addr++; break;
-    case 0x0005:
-        if (address_latch == 0) {
-            fine_x = data & 0x07; tram_addr.coarse_x = data >> 3; address_latch = 1;
+    case 0x0005: // PPUSCROLL
+    {
+        if (address_latch == 0)
+        {
+            fine_x = data & 0x07;
+            tram_addr.coarse_x = data >> 3;
+            address_latch = 1;
         }
-        else {
-            tram_addr.fine_y = data & 0x07; tram_addr.coarse_y = data >> 3; address_latch = 0;
+        else
+        {
+            tram_addr.fine_y = data & 0x07;
+            tram_addr.coarse_y = data >> 3;
+            address_latch = 0;
         }
-        break;
+    }
+    break;
     case 0x0006:
         if (address_latch == 0) {
             tram_addr.reg = (uint16_t)((data & 0x3F) << 8) | (tram_addr.reg & 0x00FF);
@@ -131,7 +146,10 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
         }
         else {
             tram_addr.reg = (tram_addr.reg & 0xFF00) | data;
-            vram_addr = tram_addr; address_latch = 0;
+            vram_addr = tram_addr;
+            address_latch = 0;
+
+            NotifyMapperA12(vram_addr.reg);
         }
         break;
     case 0x0007:
@@ -145,6 +163,9 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
 uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
     uint8_t data = 0x00;
     addr &= 0x3FFF;
+
+    if (addr <= 0x1FFF)
+        NotifyMapperA12(addr);
 
     if (cart && cart->ppuRead(addr, data)) return data;
     else if (addr <= 0x1FFF)
@@ -249,6 +270,10 @@ void PPU::UpdateShifters() {
 
 //PHẦN CHÍNH CỦA CARD ĐỒ HỌA
 void PPU::Step() {
+    if (!mapper_a12 && mapper_a12_low_cycles < 255)
+    {
+        mapper_a12_low_cycles++;
+    }
     auto lam_IncScrollX = [&]() {
         if (ppu_mask & 0x18) {
             if (vram_addr.coarse_x == 31) { vram_addr.coarse_x = 0; vram_addr.nametable_x = ~vram_addr.nametable_x; }
@@ -276,11 +301,18 @@ void PPU::Step() {
 
             if (ppu_mask & 0x18) {
                 switch ((cycle - 1) % 8) {
-                case 0: LoadBackgroundShifters(); bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF)); break;
-                case 2: bg_next_tile_attrib = ppuRead(0x23C0 | (vram_addr.nametable_y << 11) | (vram_addr.nametable_x << 10) | ((vram_addr.coarse_y >> 2) << 3) | (vram_addr.coarse_x >> 2));
+                case 0:
+                    LoadBackgroundShifters();
+                    NotifyMapperA12(0x0000);
+                    bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF));
+                    break;
+                case 2:
+                    NotifyMapperA12(0x0000);
+                    bg_next_tile_attrib = ppuRead(0x23C0 | (vram_addr.nametable_y << 11) | (vram_addr.nametable_x << 10) | ((vram_addr.coarse_y >> 2) << 3) | (vram_addr.coarse_x >> 2));
                     if (vram_addr.coarse_y & 0x02) bg_next_tile_attrib >>= 4;
                     if (vram_addr.coarse_x & 0x02) bg_next_tile_attrib >>= 2;
-                    bg_next_tile_attrib &= 0x03; break;
+                    bg_next_tile_attrib &= 0x03;
+                    break;
                 case 4: bg_next_tile_lsb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 0); break;
                 case 6: bg_next_tile_msb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 8); break;
                 case 7: lam_IncScrollX(); break;
@@ -324,9 +356,11 @@ void PPU::Step() {
                 }
             }
         }
-        // CHỐT CHẶN 3: Lọc nốt 2 nhịp đọc rác cuối dòng
         if (cycle == 338 || cycle == 340) {
-            if (ppu_mask & 0x18) bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF));
+            if (ppu_mask & 0x18) {
+                NotifyMapperA12(0x0000);
+                bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF));
+            }
         }
         if (scanline == -1 && cycle >= 280 && cycle < 305) lam_TransAddrY();
     }
@@ -363,31 +397,40 @@ void PPU::Step() {
             }
             if (!(ppu_mask & 0x02) && (cycle >= 1 && cycle <= 8)) bg_pixel = 0;
             if (!(ppu_mask & 0x04) && (cycle >= 1 && cycle <= 8)) fg_pixel = 0;
-        } // ← đóng if (ppu_mask & 0x10) ở đây
+        }
 
         // Sprite zero hit nằm NGOÀI
         if (bSpriteZeroBeingRendered && (ppu_mask & 0x18) == 0x18) {
-            if (cycle >= 1 && cycle < 255) { // ← đổi <= thành 
+            if (cycle >= 1 && cycle < 256) {
                 if (bg_pixel > 0 && fg_pixel > 0) {
                     status |= 0x40;
                 }
             }
         }
-        uint8_t final_pixel = 0; uint8_t final_palette = 0;
-        if (bg_pixel == 0 && fg_pixel == 0) { final_pixel = 0; final_palette = 0; }
-        else if (bg_pixel == 0 && fg_pixel > 0) { final_pixel = fg_pixel; final_palette = fg_palette; }
-        else if (bg_pixel > 0 && fg_pixel == 0) { final_pixel = bg_pixel; final_palette = bg_palette; }
+        uint8_t final_pixel = 0;
+        uint8_t final_palette = 0;
+        if (bg_pixel == 0 && fg_pixel == 0) {
+            final_pixel = 0; final_palette = 0; 
+        }
+        else 
+            if (bg_pixel == 0 && fg_pixel > 0) { 
+                final_pixel = fg_pixel; final_palette = fg_palette;
+            }
+        else 
+                if (bg_pixel > 0 && fg_pixel == 0) {
+                    final_pixel = bg_pixel; final_palette = bg_palette;
+                }
         else {
-            if (fg_priority) { final_pixel = fg_pixel; final_palette = fg_palette; }
-            else { final_pixel = bg_pixel; final_palette = bg_palette; }
+            if (fg_priority) { 
+                final_pixel = fg_pixel;
+                final_palette = fg_palette;
+            }
+            else { 
+                final_pixel = bg_pixel; 
+                final_palette = bg_palette; }
         }
 
         uint8_t pal_idx = (final_pixel != 0) ? (ppuRead(0x3F00 + (final_palette << 2) + final_pixel) & 0x3F) : (ppuRead(0x3F00) & 0x3F);
-
-        // --- BỘ LỌC OVERSCAN: Che 8 pixel trên và 8 pixel dưới bằng màu đen ---
-        if (scanline < 8 || scanline >= 232) {
-            pal_idx = 0x0F; // 0x0F là mã màu Đen xì trong bảng màu NES
-        }
 
         frame_pixels[scanline * 256 + (cycle - 1)] = palScreen[pal_idx].rgb();
     }
@@ -404,18 +447,34 @@ void PPU::Step() {
         if (scanline >= 261) {
             scanline = -1;
         }
-        else if (scanline >= 0 && cart && cart->pMapper) {
-            cart->pMapper->scanline();
-        }
     }
-    
+
 }
 
-// ==============================================================================
-// HÀM XUẤT HÌNH ẢNH RA GIAO DIỆN QT (UI)
-// ==============================================================================
 QImage PPU::GetScreen() {
-    // Ép kiểu mảng frame_pixels thành dạng QImage chuẩn của Qt
-    // Kích thước màn hình NES mặc định là 256x240
     return QImage((const uchar*)frame_pixels, 256, 240, QImage::Format_RGB32);
+}
+void PPU::NotifyMapperA12(uint16_t addr)
+{
+    bool new_a12 = (addr & 0x1000) != 0;
+
+    if (!mapper_a12 && new_a12)
+    {
+        if (mapper_a12_low_cycles >= 8)
+        {
+            if (cart && cart->pMapper)
+            {
+                cart->pMapper->ClockA12();
+            }
+        }
+
+        mapper_a12_low_cycles = 0;
+    }
+
+    if (mapper_a12 && !new_a12)
+    {
+        mapper_a12_low_cycles = 0;
+    }
+
+    mapper_a12 = new_a12;
 }

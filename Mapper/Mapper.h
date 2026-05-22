@@ -22,11 +22,12 @@ public:
 
     // Hàm mặc định cho mọi Mapper
     virtual MIRROR mirror() { return MIRROR::HARDWARE; }
-
+    virtual void irqStep() {}
     virtual bool irqState() { return false; }
     virtual void irqClear() {}
     virtual void scanline() {}
-
+    virtual void ClockA12() {}
+    virtual float GetExpansionAudio() { return 0.0f; }
     uint8_t nSubmapper = 0;
 
 protected:

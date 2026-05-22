@@ -10,6 +10,9 @@
 #include "Mapper_009.h"
 #include "Mapper_001.h"
 #include "Mapper_007.h"
+#include "Mapper_023.h"
+#include "Mapper_021.h"
+#include "Mapper_024.h"
 Cartridge::Cartridge(const std::string& sFileName) {
     // 1. Cấu trúc chuẩn của 16 bytes Header băng NES (iNES Format)
     struct sHeader {
@@ -51,7 +54,9 @@ Cartridge::Cartridge(const std::string& sFileName) {
         // 4. Lấy số lượng cuộn (Banks)
         nPRGBanks = header.prg_rom_chunks;
         nCHRBanks = header.chr_rom_chunks;
-
+        std::cout << "Mapper ID: " << (int)nMapperID << std::endl;
+        std::cout << "PRG Banks: " << (int)nPRGBanks << std::endl;
+        std::cout << "CHR Banks: " << (int)nCHRBanks << std::endl;
         // 5. CẮT BĂNG: NẠP CODE GAME (PRG)
         // 1 cuộn PRG chuẩn nặng 16KB (16384 bytes)
         vPRGMemory.resize(nPRGBanks * 16384);
@@ -71,42 +76,23 @@ Cartridge::Cartridge(const std::string& sFileName) {
         ifs.close();
 
         switch (nMapperID) {
-        case 0:
-            pMapper = std::make_shared<Mapper_000>(nPRGBanks, nCHRBanks);
-            break;
-
-        case 2:
-            pMapper = std::make_shared<Mapper_002>(nPRGBanks, nCHRBanks);
-            break;
-
-        case 3:
-            pMapper = std::make_shared<Mapper_003>(nPRGBanks, nCHRBanks);
-            break;
-
-        case 4: pMapper = std::make_shared<Mapper_004>(nPRGBanks, nCHRBanks);
-            break;
-
-        case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks);
-            break;
-
+        case 0:  pMapper = std::make_shared<Mapper_000>(nPRGBanks, nCHRBanks); break;
+        case 1:  pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks); break;
+        case 2:  pMapper = std::make_shared<Mapper_002>(nPRGBanks, nCHRBanks); break;
+        case 3:  pMapper = std::make_shared<Mapper_003>(nPRGBanks, nCHRBanks); break;
+        case 4:  pMapper = std::make_shared<Mapper_004>(nPRGBanks, nCHRBanks); break;
+        case 7:  pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks); break;
+        case 9:  pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks); break;
+        case 21: pMapper = std::make_shared<Mapper_021>(nPRGBanks, nCHRBanks); break;
+        case 23: pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
+        case 24: pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
+        case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
+        case 185: pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
         default:
             std::cout << "CHƯA HỖ TRỢ MAPPER ID: " << (int)nMapperID << std::endl;
             break;
-
-        case 185: pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks);
-            break;
-        case 9:
-            pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks);
-            break;
-        case 1: 
-            pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks);
-            break;
-        case 7:
-            pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks);
-            break;
-
         }
-        if ((header.mapper2 & 0x0C) == 0x08) {
+        if (pMapper && (header.mapper2 & 0x0C) == 0x08) {
             pMapper->nSubmapper = (header.prg_ram_size >> 4);
         }
     }
@@ -152,10 +138,22 @@ bool Cartridge::cpuWrite(uint16_t addr, uint8_t data) {
 
 bool Cartridge::ppuRead(uint16_t addr, uint8_t& data) {
     uint32_t mapped_addr = 0;
+
     if (pMapper && pMapper->ppuMapRead(addr, mapped_addr)) {
-        data = vCHRMemory[mapped_addr];
+        // Special marker: mapper wants PPU internal nametable, not CHR ROM
+        if (mapped_addr & 0x80000000) {
+            return false;
+        }
+
+        if (mapped_addr < vCHRMemory.size()) {
+            data = vCHRMemory[mapped_addr];
+            return true;
+        }
+
+        data = 0x00;
         return true;
     }
+
     return false;
 }
 
@@ -164,8 +162,16 @@ bool Cartridge::ppuWrite(uint16_t addr, uint8_t data) {
     if (pMapper == nullptr) return false;
 
     if (pMapper->ppuMapWrite(addr, mapped_addr)) {
-        vCHRMemory[mapped_addr] = data;
+        if (mapped_addr & 0x80000000) {
+            return false;
+        }
+
+        if (mapped_addr < vCHRMemory.size()) {
+            vCHRMemory[mapped_addr] = data;
+        }
+
         return true;
     }
+
     return false;
 }

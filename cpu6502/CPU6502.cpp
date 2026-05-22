@@ -44,57 +44,96 @@ void CPU6502::reset() {
     uint16_t lo = read(0xFFFC);
     uint16_t hi = read(0xFFFD);
     pc = (hi << 8) | lo;
-    if (pc == 0x0000) {
-        pc = 0x8000;
-    }
+
     a = 0; x = 0; y = 0;
     stkp = 0xFD;
-    status = 0x00 | U;
+    status = U | I;
+
+    nmi_pending = false;
+    irq_pending = false;
+    irq_sources = 0;
+
     addr_rel = 0x0000; addr_abs = 0x0000; fetched = 0x00;
     cycles = 8;
 }
 
-void CPU6502::irq() {
-    if (GetFlag(I) == 0) {
-        write(0x0100 + stkp, (pc >> 8) & 0x00FF); stkp--;
-        write(0x0100 + stkp, pc & 0x00FF); stkp--;
-        SetFlag(B, 0); SetFlag(U, 1); SetFlag(I, 1);
-        write(0x0100 + stkp, status); stkp--;
-        addr_abs = 0xFFFE;
-        uint16_t lo = read(addr_abs + 0);
-        uint16_t hi = read(addr_abs + 1);
-        pc = (hi << 8) | lo;
-        cycles = 7;
-        irqHandledCount++;
-    }
-    else {
-        irqBlockedCount++;
-    }
-        
-}
-
 void CPU6502::nmi() {
-    write(0x0100 + stkp, (pc >> 8) & 0x00FF); stkp--;
-    write(0x0100 + stkp, pc & 0x00FF); stkp--;
-    SetFlag(B, 0); SetFlag(U, 1); SetFlag(I, 1);
-    write(0x0100 + stkp, status); stkp--;
-    addr_abs = 0xFFFA;
-    uint16_t lo = read(addr_abs + 0);
-    uint16_t hi = read(addr_abs + 1);
-    pc = (hi << 8) | lo;
-    cycles = 8;
+    nmi_pending = true;
 }
 
+void CPU6502::irq() {
+    // Compatibility path for existing code: request a one-shot IRQ.
+    // Do NOT drop it just because I flag is currently set; the CPU will decide
+    // whether it can take the IRQ at the instruction boundary.
+    irq_pending = true;
+}
+
+void CPU6502::SetIrqSource(uint8_t source) {
+    irq_sources |= source;
+}
+
+void CPU6502::ClearIrqSource(uint8_t source) {
+    irq_sources &= ~source;
+}
+
+bool CPU6502::IsIrqActive() const {
+    return irq_pending || irq_sources != 0;
+}
 void CPU6502::clock() {
     if (cycles == 0) {
-        opcode = read(pc);
-        SetFlag(U, true);
-        pc++;
-        cycles = lookup[opcode].cycles;
-        uint8_t additional_cycle1 = (this->*lookup[opcode].addrmode)();
-        uint8_t additional_cycle2 = (this->*lookup[opcode].operate)();
-        cycles += (additional_cycle1 & additional_cycle2);
-        SetFlag(U, true);
+        if (nmi_pending) {
+            nmi_pending = false;
+
+            write(0x0100 + stkp, (pc >> 8) & 0x00FF); stkp--;
+            write(0x0100 + stkp, pc & 0x00FF); stkp--;
+
+            // Hardware pushes P with B clear, U set, then sets I.
+            uint8_t pushedStatus = (status & ~B) | U;
+            write(0x0100 + stkp, pushedStatus); stkp--;
+            SetFlag(I, true);
+            SetFlag(U, true);
+
+            uint16_t lo = read(0xFFFA);
+            uint16_t hi = read(0xFFFB);
+            pc = (hi << 8) | lo;
+            cycles = 8;
+        }
+        else if (IsIrqActive() && GetFlag(I) == 0) {
+            // If this was the old one-shot irq() request, consume it.
+            // Held IRQ sources remain active until ClearIrqSource() is called.
+            if (irq_sources == 0) {
+                irq_pending = false;
+            }
+            irqHandledCount++;
+
+            write(0x0100 + stkp, (pc >> 8) & 0x00FF); stkp--;
+            write(0x0100 + stkp, pc & 0x00FF); stkp--;
+
+            // Hardware pushes P with B clear, U set, then sets I.
+            uint8_t pushedStatus = (status & ~B) | U;
+            write(0x0100 + stkp, pushedStatus); stkp--;
+            SetFlag(I, true);
+            SetFlag(U, true);
+
+            uint16_t lo = read(0xFFFE);
+            uint16_t hi = read(0xFFFF);
+            pc = (hi << 8) | lo;
+            cycles = 7;
+        }
+        else {
+            if (IsIrqActive() && GetFlag(I) != 0) {
+                irqBlockedCount++;
+            }
+
+            opcode = read(pc);
+            SetFlag(U, true);
+            pc++;
+            cycles = lookup[opcode].cycles;
+            uint8_t c1 = (this->*lookup[opcode].addrmode)();
+            uint8_t c2 = (this->*lookup[opcode].operate)();
+            cycles += (c1 & c2);
+            SetFlag(U, true);
+        }
     }
     clock_count++;
     cycles--;
@@ -105,9 +144,7 @@ uint8_t CPU6502::fetch() {
         fetched = read(addr_abs);
     return fetched;
 }
-// ==============================================================================
 // CỤC 2: 12 CHẾ ĐỘ ĐỊA CHỈ (ADDRESSING MODES)
-// ==============================================================================
 
 uint8_t CPU6502::IMP() {
     fetched = a;
@@ -308,7 +345,7 @@ uint8_t CPU6502::NOP() { switch (opcode) { case 0x1C: case 0x3C: case 0x5C: case
                                                     uint8_t CPU6502::ROL() { fetch(); temp = (uint16_t)(fetched << 1) | GetFlag(C); SetFlag(C, temp & 0xFF00); SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
                                                     uint8_t CPU6502::ROR() { fetch(); temp = (uint16_t)(GetFlag(C) << 7) | (fetched >> 1); SetFlag(C, fetched & 0x01); SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
 
-                                                    uint8_t CPU6502::RTI() { stkp++; status = read(0x0100 + stkp); status &= ~B; status &= ~U; stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; return 0; }
+                                                    uint8_t CPU6502::RTI() { stkp++; status = read(0x0100 + stkp); status &= ~B; status |= U; stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; return 0; }
                                                     uint8_t CPU6502::RTS() { stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; pc++; return 0; }
 
                                                     uint8_t CPU6502::SEC() { SetFlag(C, true); return 0; }
@@ -320,12 +357,15 @@ uint8_t CPU6502::NOP() { switch (opcode) { case 0x1C: case 0x3C: case 0x5C: case
                                                     uint8_t CPU6502::STY() { write(addr_abs, y); return 0; }
                                                     uint8_t CPU6502::BRK() {
                                                         pc++;
-                                                        SetFlag(I, 1);
                                                         write(0x0100 + stkp, (pc >> 8) & 0x00FF); stkp--;
                                                         write(0x0100 + stkp, pc & 0x00FF); stkp--;
-                                                        SetFlag(B, 1);
-                                                        write(0x0100 + stkp, status); stkp--;
-                                                        SetFlag(B, 0);
+
+                                                        uint8_t pushedStatus = status | B | U;
+                                                        write(0x0100 + stkp, pushedStatus); stkp--;
+                                                        SetFlag(I, true);
+                                                        SetFlag(B, false);
+                                                        SetFlag(U, true);
+
                                                         pc = (uint16_t)read(0xFFFE) | ((uint16_t)read(0xFFFF) << 8);
                                                         return 0;
                                                     }
@@ -337,7 +377,6 @@ uint8_t CPU6502::NOP() { switch (opcode) { case 0x1C: case 0x3C: case 0x5C: case
                                                     uint8_t CPU6502::TYA() { a = y; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
 
                                                     uint8_t CPU6502::XXX() { return 0; }
-                                                    // DÁN ĐOẠN NÀY VÀO CUỐI FILE CPU6502.cpp
 
                                                     bool CPU6502::complete() {
                                                         return cycles == 0;

@@ -2,29 +2,23 @@
 
 Mapper_001::Mapper_001(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) {
 
-    reset(); // Khởi tạo trạng thái Bank lúc mới bật máy
+    reset(); 
 }
 
 Mapper_001::~Mapper_001() {}
 
-void Mapper_001::reset() {
+void Mapper_001::reset() { 
     nControlRegister = 0x1C; // Mode mặc định: PRG 16KB cố định ở 0xC000
     nLoadRegister = 0x00;
     nLoadRegisterCount = 0x00;
-
     nCHRBankSelect4Lo = 0;
     nCHRBankSelect4Hi = 0;
     nCHRBankSelect8 = 0;
-
     nPRGBankSelect16Lo = 0;
     nPRGBankSelect16Hi = 0;
     nPRGBankSelect32 = 0;
-
-    // Cài đặt PRG Bank mặc định
     pPRGBank[0] = 0;
     pPRGBank[1] = (nPRGBanks - 1) * 0x4000; // Bank cuối cùng luôn nằm ở 0xC000
-
-    // Cài đặt CHR Bank mặc định
     pCHRBank[0] = 0;
     pCHRBank[1] = 0x1000;
 }

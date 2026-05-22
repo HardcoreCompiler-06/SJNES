@@ -4,7 +4,9 @@ Mapper_185::Mapper_185(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, ch
 Mapper_185::~Mapper_185() {}
 
 void Mapper_185::reset() {
-    nDummyEnable = 0x00; // Bật máy là phải khóa chặt cửa!
+    // Boot với CHR MỞ — game đọc CHR thật để verify copy protection
+    // B-Wings Japan dùng key 0x21 (low nibble != 0 → mở)
+    nDummyEnable = 0x21;
 }
 
 bool Mapper_185::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
@@ -24,16 +26,8 @@ bool Mapper_185::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 
 bool Mapper_185::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
     if (addr <= 0x1FFF) {
-        
-        bool bEnable = ((nDummyEnable & 0x0F) != 0 && nDummyEnable != 0x13);
-
-        if (bEnable) {
-            mapped_addr = addr & 0x1FFF; // Đọc thẳng vào 8KB hình ảnh
-        }
-        else {
-            mapped_addr = 0xFFFFFFFF; // Trả về địa chỉ ma để lừa bài test bảo mật
-        }
-        return true;
+        mapped_addr = addr & 0x1FFF;
+        return true;  // Luôn mở, bỏ qua copy protection
     }
     return false;
 }

@@ -15,7 +15,7 @@ public:
     bool ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) override;
 
     void reset() override;
-
+    void ClockA12() override;
     // Còi báo IRQ chuẩn
     bool irqState() override;
     void irqClear() override;
@@ -23,9 +23,6 @@ public:
 private:
 
     MIRROR mirrormode = MIRROR::HORIZONTAL;
-    // ==========================================
-    // CÁC THANH GHI ĐIỀU KHIỂN CỦA CHIP MMC3
-    // ==========================================
     uint8_t nTargetRegister = 0x00;
     bool bPRGBankMode = false;
     bool bCHRInversion = false;
@@ -34,16 +31,10 @@ private:
     uint32_t pCHRBank[8];  // 8 Cửa sổ 1KB cho hình ảnh
     uint32_t pPRGBank[4];  // 4 Cửa sổ 8KB cho code CPU
 
-    // ==========================================
-    // HỆ THỐNG ĐẾM DÒNG QUÉT (SCANLINE IRQ)
-    // ==========================================
+    
     bool bIRQActive = false;
     bool bIRQEnable = false;
     bool bIRQUpdate = false;
     uint16_t nIRQCounter = 0x0000;
     uint16_t nIRQLatch = 0x0000;
-
-    //Fix lỗi mapper 4 bằng dây A12
-    bool bLastA12 = false;     // Nhớ trạng thái chân A12 ở chu kỳ trước
-    uint8_t nA12Delay = 0;     // Bộ đếm chống nhiễu tín hiệu
 };

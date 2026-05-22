@@ -9,13 +9,11 @@ public:
     PPU();
     ~PPU();
 
-    // ==============================================================================
-    // KẾT NỐI VÀ KHỞI TẠO
-    // ==============================================================================
     void ConnectCartridge(const std::shared_ptr<Cartridge>& cartridge);
     void reset();
     void Step(); // Chạy 1 chu kỳ PPU
-
+    uint8_t getPPUMask() { return ppu_mask; }
+    uint8_t getPPUCtrl() { return ppu_ctrl; }
     QColor palScreen[0x40];
     // ==============================================================================
     // GIAO TIẾP VỚI CPU (Đọc/Ghi các thanh ghi $2000 - $2007)
@@ -50,7 +48,9 @@ private:
     uint8_t sprite_attribute[8];
     bool sprite_zero_being_rendered[8];
     std::shared_ptr<Cartridge> cart;
-
+    bool mapper_a12 = false;
+    uint8_t mapper_a12_low_cycles = 0;
+    void NotifyMapperA12(uint16_t addr);
     // ==============================================================================
     // BỘ NHỚ NỘI BỘ CỦA PPU
     // ==============================================================================

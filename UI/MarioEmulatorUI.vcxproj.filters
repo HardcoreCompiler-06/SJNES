@@ -82,6 +82,18 @@
     <ClCompile Include="Mapper_007.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Mapper_023.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Mapper_021.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Mapper_024.h">
+      <Filter>Header Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Mapper_024.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PPU.h">
@@ -127,6 +139,33 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Mapper_007.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Mapper_023.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Mapper_021.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="LogBuffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DMC.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="F1.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="F2.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Noise.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Triangle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ApuEnvelope.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
