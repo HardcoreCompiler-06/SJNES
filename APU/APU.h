@@ -25,7 +25,11 @@ public:
     void    Step();
     float   GetOutputSample();
     void    GetOutputSampleStereo(float& left, float& right);
-
+    bool mutePulse1 = false;
+    bool mutePulse2 = false;
+    bool muteTriangle = false;
+    bool muteNoise = false;
+    bool muteDMC = false;
     uint8_t readStatus() {
         uint8_t s = 0;
         if (f1.length_counter > 0) s |= 0x01;

@@ -6,7 +6,7 @@ class Mapper_024 : public Mapper {
 public:
     Mapper_024(uint8_t prgBanks, uint8_t chrBanks);
     ~Mapper_024();
-
+    bool muteVRC6 = false;
     bool cpuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
 

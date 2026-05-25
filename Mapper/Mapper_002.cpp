@@ -24,7 +24,7 @@ bool Mapper_002::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 
 bool Mapper_002::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) {
     if (addr >= 0x8000 && addr <= 0xFFFF) {
-        nPRGBankSelectLo = data & 0x0F;
+        nPRGBankSelectLo = data & 0xFF;
         if (nPRGBanks > 0) {
             nPRGBankSelectLo %= nPRGBanks;
         }

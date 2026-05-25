@@ -321,34 +321,61 @@ void PPU::Step() {
         }
         if (cycle == 256) lam_IncScrollY();
         if (cycle == 257) {
-            LoadBackgroundShifters(); lam_TransAddrX();
+            LoadBackgroundShifters();
+            lam_TransAddrX();
 
             if (ppu_mask & 0x18) {
                 sprite_count = 0;
-                for (int i = 0; i < 64 && sprite_count < 8; i++) {
-                    uint8_t sprite_y = OAM[i * 4 + 0];
-                    uint8_t sprite_id = OAM[i * 4 + 1];
-                    uint8_t sprite_attr = OAM[i * 4 + 2];
-                    uint8_t sprite_x_pos = OAM[i * 4 + 3];
 
-                    int diffY = scanline - sprite_y;
-                    int spriteHeight = (ppu_ctrl & 0x20) ? 16 : 8;
-                    if (diffY >= 0 && diffY < spriteHeight) {
-                        uint8_t flipY = (sprite_attr & 0x80) > 0;
-                        int row = flipY ? (spriteHeight - 1 - diffY) : diffY;
-                        uint16_t pattern_addr = 0;
-                        if (spriteHeight == 8)
-                            pattern_addr = ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) | ((uint16_t)sprite_id << 4) | row;
-                        else pattern_addr = ((sprite_id & 0x01) ? 0x1000 : 0x0000) | ((uint16_t)(sprite_id & 0xFE) << 4) | ((row >= 8) ? (row + 8) : row);
+                int target_scanline = scanline + 1;
 
-                        sprite_pattern_lo[sprite_count] = ppuRead(pattern_addr);
-                        sprite_pattern_hi[sprite_count] = ppuRead(pattern_addr + 8);
-                        sprite_x[sprite_count] = sprite_x_pos;
-                        sprite_attribute[sprite_count] = sprite_attr;
-                        sprite_zero_being_rendered[sprite_count] = (i == 0);
-                        sprite_count++;
+                // Không evaluate sprite ngoài vùng visible
+                if (target_scanline >= 0 && target_scanline < 240) {
+                    for (int i = 0; i < 64 && sprite_count < 8; i++) {
+                        uint8_t sprite_y = OAM[i * 4 + 0];
+                        uint8_t sprite_id = OAM[i * 4 + 1];
+                        uint8_t sprite_attr = OAM[i * 4 + 2];
+                        uint8_t sprite_x_pos = OAM[i * 4 + 3];
+
+                        int spriteHeight = (ppu_ctrl & 0x20) ? 16 : 8;
+                        int diffY = target_scanline - sprite_y;
+
+                        if (diffY >= 0 && diffY < spriteHeight) {
+                            bool flipY = (sprite_attr & 0x80) != 0;
+                            int row = flipY ? (spriteHeight - 1 - diffY) : diffY;
+
+                            uint16_t pattern_addr = 0;
+
+                            if (spriteHeight == 8) {
+                                pattern_addr =
+                                    ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) |
+                                    ((uint16_t)sprite_id << 4) |
+                                    row;
+                            }
+                            else {
+                                uint16_t table = (sprite_id & 0x01) ? 0x1000 : 0x0000;
+                                uint16_t tile = (sprite_id & 0xFE);
+
+                                if (row < 8) {
+                                    pattern_addr = table | (tile << 4) | row;
+                                }
+                                else {
+                                    pattern_addr = table | ((tile + 1) << 4) | (row - 8);
+                                }
+                            }
+
+                            sprite_pattern_lo[sprite_count] = ppuRead(pattern_addr);
+                            sprite_pattern_hi[sprite_count] = ppuRead(pattern_addr + 8);
+                            sprite_x[sprite_count] = sprite_x_pos;
+                            sprite_attribute[sprite_count] = sprite_attr;
+                            sprite_zero_being_rendered[sprite_count] = (i == 0);
+
+                            sprite_count++;
+                        }
                     }
                 }
+
+                // dummy sprite fetch cho các slot còn lại
                 for (int i = sprite_count; i < 8; i++) {
                     uint16_t dummy_addr = ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) | (0xFF << 4);
                     ppuRead(dummy_addr);

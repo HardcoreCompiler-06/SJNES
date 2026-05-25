@@ -13,6 +13,7 @@
 #include "Mapper_023.h"
 #include "Mapper_021.h"
 #include "Mapper_024.h"
+#include "Mapper_221.h"
 Cartridge::Cartridge(const std::string& sFileName) {
     // 1. Cấu trúc chuẩn của 16 bytes Header băng NES (iNES Format)
     struct sHeader {
@@ -87,7 +88,8 @@ Cartridge::Cartridge(const std::string& sFileName) {
         case 23: pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
         case 24: pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
         case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
-        case 185: pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
+        case 185:pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
+        case 221:pMapper = std::make_shared<Mapper_221>(nPRGBanks, nCHRBanks); break;
         default:
             std::cout << "CHƯA HỖ TRỢ MAPPER ID: " << (int)nMapperID << std::endl;
             break;

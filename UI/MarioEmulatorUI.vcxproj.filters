@@ -94,6 +94,12 @@
     <ClCompile Include="Mapper_024.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Mapper_221.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuScreenWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PPU.h">
@@ -168,5 +174,13 @@
     <ClInclude Include="ApuEnvelope.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Mapper_221.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="GpuScreenWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
   </ItemGroup>
 </Project>

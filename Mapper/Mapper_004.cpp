@@ -30,9 +30,7 @@ bool Mapper_004::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
     return false;
 }
 
-// =========================================================
 // 2. HÀM CHO PPU: BỘ LỌC A12 (TỈ LỆ 3) VÀ ĐỌC HÌNH ẢNH (CHR)
-// =========================================================
 bool Mapper_004::ppuMapRead(uint16_t addr, uint32_t& mapped_addr)
 {
     // Chia Bank hình ảnh
@@ -97,7 +95,7 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
         pPRGBank[1] = wrapPRG(pRegister[7] & 0x3F);
         pPRGBank[3] = wrapPRG(num_prg_banks - 1);
 
-        return false; // Lưu ý: Chỗ này phải trả về false nhé!
+        return false;
     }
     else if (addr >= 0xA000 && addr <= 0xBFFF) {
         if (!(addr & 0x0001)) {
@@ -105,7 +103,6 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
             else mirrormode = MIRROR::VERTICAL;
         }
         else {
-            // Chỗ này để trống cho PRG RAM Protect sau này
         }
         return false;
     }
@@ -121,7 +118,7 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
     else if (addr >= 0xE000 && addr <= 0xFFFF) {
         if (!(addr & 0x0001)) {
             bIRQEnable = false;
-            bIRQActive = false; // Dập chuông
+            bIRQActive = false; 
         }
         else {
             bIRQEnable = true;
@@ -145,7 +142,7 @@ bool Mapper_004::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
 // MMC3 IRQ must be held as an IRQ source/line.
 // Do not discard IRQ just because I flag is currently set,
 // otherwise split-screen HUD may jitter in games like "Contra Force".
-//lỗi hud có thể do CPU sai(mất 7 tháng để tìm ra lỗi)
+// lỗi hud có thể do CPU sai IRQ (mất 7 tháng để tìm ra lỗi)
 void Mapper_004::ClockA12()
 {
     if (nIRQCounter == 0 || bIRQUpdate)

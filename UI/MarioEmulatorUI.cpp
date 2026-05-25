@@ -1,11 +1,14 @@
 #include "MarioEmulatorUI.h"
 #include <QFileDialog>
 #include <QMessageBox>
+#include <algorithm>
 #include "Mapper.h"
-#include <QFileDialog>
 #include <QSettings>
 #include <QFileInfo>
 #include "LogBuffer.h"
+#include "GpuScreenWidget.h"
+#include <QCheckBox>
+#include "Mapper_024.h"
 MarioEmulatorUI::MarioEmulatorUI(QWidget* parent)
     : QMainWindow(parent)
 {
@@ -20,7 +23,8 @@ MarioEmulatorUI::MarioEmulatorUI(QWidget* parent)
     connect(ui.btnOpenROM, &QPushButton::clicked, this, &MarioEmulatorUI::onOpenROMClicked);
     connect(ui.btnStep, &QPushButton::clicked, this, &MarioEmulatorUI::onStepClicked);
     connect(ui.btnStereo, &QPushButton::toggled, this, &MarioEmulatorUI::onStereoToggled);
-    // BƯỚC 3: LẮP ĐỘNG CƠ HÌNH ẢNH (60 FPS ~ 16ms/frame)
+    connect(ui.btnReset, &QPushButton::clicked, this, &MarioEmulatorUI::onResetClicked);
+    // BƯỚC 3: HÌNH ẢNH (60 FPS ~ 16ms/frame)
     timer = new QTimer(this);
     timer->setTimerType(Qt::PreciseTimer);
     connect(timer, &QTimer::timeout, this, &MarioEmulatorUI::runFrame);
@@ -33,6 +37,50 @@ MarioEmulatorUI::MarioEmulatorUI(QWidget* parent)
     audio_sink = new QAudioSink(format, this);
     audio_sink->setBufferSize(32768);
     audio_device = audio_sink->start();
+    
+    //debug âm thanh (2A03)
+    ui.chkPulse1->setChecked(true);
+    ui.chkPulse2->setChecked(true);
+    ui.chkTriangle->setChecked(true);
+    ui.chkNoise->setChecked(true);
+    ui.chkDMC->setChecked(true);
+
+    connect(ui.chkPulse1, &QCheckBox::toggled, this, [this](bool checked) {
+        nes_bus.n_apu.mutePulse1 = !checked;
+        });
+
+    connect(ui.chkPulse2, &QCheckBox::toggled, this, [this](bool checked) {
+        nes_bus.n_apu.mutePulse2 = !checked;
+        });
+
+    connect(ui.chkTriangle, &QCheckBox::toggled, this, [this](bool checked) {
+        nes_bus.n_apu.muteTriangle = !checked;
+        });
+
+    connect(ui.chkNoise, &QCheckBox::toggled, this, [this](bool checked) {
+        nes_bus.n_apu.muteNoise = !checked;
+        });
+
+    connect(ui.chkDMC, &QCheckBox::toggled, this, [this](bool checked) {
+        nes_bus.n_apu.muteDMC = !checked;
+        });
+    //âm thanh mở rộng VRC6
+    ui.chkVRC6->setChecked(true);
+
+    connect(ui.chkVRC6, &QCheckBox::toggled, this, [this](bool checked) {
+        if (!nes_bus.cart || !nes_bus.cart->pMapper)
+            return;
+
+        if (auto* vrc6 = dynamic_cast<Mapper_024*>(nes_bus.cart->pMapper.get())) {
+            vrc6->muteVRC6 = !checked;
+        }
+        });
+
+    //Filter
+    connect(ui.chkPixelPerfect, &QCheckBox::toggled, this, [this](bool checked) {
+        pixelPerfectMode = checked;
+        resizeEvent(nullptr);
+        });
 }
 
 MarioEmulatorUI::~MarioEmulatorUI() {}
@@ -42,7 +90,6 @@ MarioEmulatorUI::~MarioEmulatorUI() {}
 // =======================================================================
 void MarioEmulatorUI::onOpenROMClicked()
 {
-    // --- MA THUẬT GHI NHỚ ĐƯỜNG DẪN BẰNG QSETTINGS ---
     QSettings settings("chienz", "NesEmulator");
     QString lastPath = settings.value("LastRomPath", "D:\\").toString();
 
@@ -93,6 +140,51 @@ void MarioEmulatorUI::onOpenROMClicked()
     }
 }
 
+void MarioEmulatorUI::onResetClicked()
+{
+    if (nes_bus.cart == nullptr || nes_bus.cart->pMapper == nullptr) {
+        return;
+    }
+
+    // Dừng tạm để reset không bị chạy giữa frame
+    bool wasRunning = timer->isActive();
+    timer->stop();
+
+    // Reset clock hệ thống
+    system_clock_counter = 0;
+    dma_dummy_counter = 0;
+
+    // Reset DMA
+    nes_bus.dma_page = 0x00;
+    nes_bus.dma_addr = 0x00;
+    nes_bus.dma_data = 0x00;
+    nes_bus.dma_dummy = true;
+    nes_bus.dma_transfer = false;
+
+    // Reset controller shift
+    nes_bus.controller_strobe = 0;
+    nes_bus.controller_shift = 0;
+
+    // Reset PPU -> Mapper -> CPU
+    nes_ppu.reset();
+
+    if (nes_bus.cart->pMapper != nullptr) {
+        nes_bus.cart->pMapper->reset();
+    }
+
+    nes_cpu.reset();
+    ui.txtConsole->appendPlainText(">>> RESET MAY NES");
+    ui.txtConsole->appendPlainText(
+        QString("START -> PC: 0x%1")
+        .arg(nes_cpu.pc, 4, 16, QChar('0'))
+        .toUpper()
+    );
+
+    if (wasRunning) {
+        timer->start(16);
+    }
+}
+
 void MarioEmulatorUI::onStepClicked() {
     if (timer->isActive()) {
         timer->stop();
@@ -103,13 +195,11 @@ void MarioEmulatorUI::onStepClicked() {
         ui.btnStep->setText("Dừng (Pause)");
     }
 }
-
-// TRÁI TIM GIẢ LẬP: CHẠY 1 KHUNG HÌNH (CHUẨN OLC CYCLE)
 void MarioEmulatorUI::runFrame() {
     static QByteArray audio_buffer;
     static double audio_accumulator = 0.0;
-
-    if (audio_sink != nullptr && audio_sink->bytesFree() < 4096) {
+    const float MASTER_VOLUME = 1.8f; // thử 1.5f, 1.8f, 2.0f
+    if (audio_sink != nullptr && audio_sink->bytesFree() < 8192) {
         return;
     }
 
@@ -162,6 +252,9 @@ void MarioEmulatorUI::runFrame() {
                     left += exp;
                     right += exp;
 
+                    left = std::clamp(left * MASTER_VOLUME, -1.0f, 1.0f);
+                    right = std::clamp(right * MASTER_VOLUME, -1.0f, 1.0f);
+
                     audio_buffer.append(reinterpret_cast<const char*>(&left), sizeof(float));
                     audio_buffer.append(reinterpret_cast<const char*>(&right), sizeof(float));
                 }
@@ -171,6 +264,8 @@ void MarioEmulatorUI::runFrame() {
                     if (nes_bus.cart && nes_bus.cart->pMapper) {
                         sample += nes_bus.cart->pMapper->GetExpansionAudio();
                     }
+
+                    sample = std::clamp(sample * MASTER_VOLUME, -1.0f, 1.0f);
 
                     audio_buffer.append(reinterpret_cast<const char*>(&sample), sizeof(float));
                 }
@@ -194,14 +289,7 @@ void MarioEmulatorUI::runFrame() {
     }
 
     QImage frameImage = nes_bus.ppu->GetScreen();
-    ui.gameScreen->setAlignment(Qt::AlignCenter);
-    QImage scaledImage = frameImage.scaled(ui.gameScreen->size(), Qt::KeepAspectRatio, Qt::FastTransformation);
-
-    ui.gameScreen->setPixmap(QPixmap::fromImage(scaledImage));
-
-    for (auto& msg : gLogBuffer) {
-        ui.txtConsole->appendPlainText(QString::fromStdString(msg));
-    }
+    ui.gameScreen->setFrame(frameImage);
     gLogBuffer.clear();
 
 } 
@@ -226,11 +314,69 @@ void MarioEmulatorUI::onStereoToggled(bool checked) {
 void MarioEmulatorUI::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
 
-    int w = ui.centralWidget->width();
-    int h = ui.centralWidget->height();
+    int areaW = ui.centralWidget->width();
+    int areaH = ui.centralWidget->height();
 
-    // Ép khung gameScreen giãn hết cỡ, chừa lại 30 pixel cho thanh công cụ
-    ui.gameScreen->setGeometry(0, 30, w, h - 30);
+    const int topBarH = 45;
+    const int bottomMargin = 0;
+
+    // Chừa panel debug/log bên trái và audio checkbox bên phải
+    const int leftPanelW = 130;
+    const int rightPanelW = 130;
+
+    int availableW = areaW - leftPanelW - rightPanelW;
+    int availableH = areaH - topBarH - bottomMargin;
+
+    if (availableW < 256) availableW = 256;
+    if (availableH < 240) availableH = 240;
+
+    int screenW = 0;
+    int screenH = 0;
+
+    if (pixelPerfectMode)
+    {
+        // Perfect Pixel: chỉ scale theo số nguyên 1x, 2x, 3x, 4x...
+        int scaleX = availableW / 256;
+        int scaleY = availableH / 240;
+        int scale = std::min(scaleX, scaleY);
+
+        if (scale < 1)
+            scale = 1;
+
+        screenW = 256 * scale;
+        screenH = 240 * scale;
+    }
+    else
+    {
+        // Fit Screen: phóng to sát vùng trống, giữ tỉ lệ nhưng không pixel perfect tuyệt đối
+        screenH = availableH;
+        screenW = screenH * 256 / 240;
+
+        if (screenW > availableW) {
+            screenW = availableW;
+            screenH = screenW * 240 / 256;
+        }
+    }
+
+    // Căn giữa trong vùng giữa, không đè panel trái/phải
+    int x = leftPanelW + (availableW - screenW) / 2;
+    int y = topBarH + (availableH - screenH) / 2;
+
+    ui.gameScreen->setGeometry(x, y, screenW, screenH);
+
+    // Audio debug checkbox bám rìa phải
+    int chkX = areaW - rightPanelW + 15;
+    int chkY = topBarH + 20;
+    int chkW = 110;
+    int chkH = 24;
+    int gap = 28;
+
+    ui.chkPulse1->setGeometry(chkX, chkY + gap * 0, chkW, chkH);
+    ui.chkPulse2->setGeometry(chkX, chkY + gap * 1, chkW, chkH);
+    ui.chkTriangle->setGeometry(chkX, chkY + gap * 2, chkW, chkH);
+    ui.chkNoise->setGeometry(chkX, chkY + gap * 3, chkW, chkH);
+    ui.chkDMC->setGeometry(chkX, chkY + gap * 4, chkW, chkH);
+    ui.chkVRC6->setGeometry(chkX, chkY + gap * 5, chkW, chkH);
 }
 // XỬ LÝ PHÍM BẤM
 void MarioEmulatorUI::keyPressEvent(QKeyEvent* event) {

@@ -317,6 +317,7 @@ bool Mapper_024::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 
     case 0xF000:
         irqLatch = data;
+        irqActive = false;
         return false;
 
     case 0xF001:
@@ -581,6 +582,9 @@ void Mapper_024::ClockVRC6Audio()
 
 float Mapper_024::GetExpansionAudio()
 {
+    if (muteVRC6)
+        return 0.0f;
+
     float mix = 0.0f;
 
     mix += pulse1.output * 0.35f;

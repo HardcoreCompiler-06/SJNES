@@ -35,7 +35,7 @@ private slots:
 private:
     bool pendingIRQClear = false;
     Ui::MarioEmulatorUIClass ui;
-
+    void onResetClicked();
     // Các thiết bị NES
     Bus nes_bus;
     CPU6502 nes_cpu;
@@ -46,10 +46,12 @@ private:
 
     // Biến đếm nhịp hệ thống (Bí kíp của OLC)
     uint32_t system_clock_counter = 0;
-    uint16_t dma_dummy_counter = 0; // Đếm số chu kỳ CPU phải ngủ đông khi chạy DMA
+    uint16_t dma_dummy_counter = 0;
 
     // Hệ thống âm thanh
     QAudioSink* audio_sink = nullptr;
     QIODevice* audio_device = nullptr;
     bool is_stereo = true;
+    //filter
+    bool pixelPerfectMode = false;
 };

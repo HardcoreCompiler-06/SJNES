@@ -103,11 +103,11 @@ float APU::GetOutputSample() {
 }
 
 void APU::GetOutputSampleStereo(float& left, float& right) {
-    float p1 = f1.Output();
-    float p2 = f2.Output();
-    float t = tri.Output();
-    float n = noise.Output();
-    float d = dmc.Output();
+    float p1 = mutePulse1 ? 0.0f : f1.Output();
+    float p2 = mutePulse2 ? 0.0f : f2.Output();
+    float t = muteTriangle ? 0.0f : tri.Output();
+    float n = muteNoise ? 0.0f : noise.Output();
+    float d = muteDMC ? 0.0f : dmc.Output();
 
     // TND filter qua mono filter chung (hp1/hp2/lp) tránh lệch pha L/R
     float tnd = (t / 8227.0f) + (n / 12241.0f) + (d / 22638.0f);
