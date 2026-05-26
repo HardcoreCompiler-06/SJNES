@@ -1,5 +1,6 @@
 #pragma once
 #include "Mapper.h"
+#include <QString>
 
 class Mapper_001 : public Mapper {
 public:
@@ -14,7 +15,7 @@ public:
     MIRROR mirror() override { return currentMirror; }
     // Bắt buộc phải có hàm reset cho MMC1
     void reset() override;
-
+    QString GetDebugInfo() override;
 private:
     // ========================================================
     // CÁC THANH GHI CHỌN BANK (BANK SELECT REGISTERS)

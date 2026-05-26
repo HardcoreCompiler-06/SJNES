@@ -53,3 +53,45 @@ bool Mapper_087::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     // Băng TwinBee dùng ROM (Read-Only Memory) cho đồ họa, tuyệt đối không cho ghi đè
     return false;
 }
+QString Mapper_087::GetDebugInfo()
+{
+    QString s;
+
+    s += "===== MAPPER 087 =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += "Mapper này cố định PRG 32KB tại $8000-$FFFF.\n";
+    s += "CHR bank được chọn bằng ghi vào $6000-$7FFF.\n";
+    s += "Dữ liệu ghi bị đảo bit 0 và bit 1 để ra bank CHR.\n\n";
+
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+
+    s += "\nPRG MAPPING:\n";
+    if (nPRGBanks > 1)
+    {
+        s += "$8000-$FFFF : PRG 32KB cố định | offset ROM = 0x000000\n";
+        s += "$8000-$BFFF : PRG bank 0\n";
+        s += "$C000-$FFFF : PRG bank 1\n";
+    }
+    else
+    {
+        s += "$8000-$BFFF : PRG bank 0\n";
+        s += "$C000-$FFFF : mirror PRG bank 0\n";
+    }
+
+    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += QString("$0000-$1FFF : CHR bank 8KB = %1 | offset CHR = 0x%2\n")
+        .arg(chrBankSelect)
+        .arg(chrBankSelect * 0x2000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += "\nTHANH GHI MAPPER:\n";
+    s += QString("chrBankSelect : %1\n").arg(chrBankSelect);
+
+    s += "\nGHI CHÚ:\n";
+    s += "Khi CPU ghi data vào $6000-$7FFF:\n";
+    s += "bit0 được chuyển thành bit1, bit1 được chuyển thành bit0.\n";
+
+    return s;
+}

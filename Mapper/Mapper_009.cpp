@@ -105,3 +105,101 @@ bool Mapper_009::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 bool Mapper_009::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     return false;
 }
+
+QString Mapper_009::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        default:                   return "Hardware / Không rõ";
+        }
+        };
+
+    uint32_t prg8Count = nPRGBanks * 2;
+
+    uint32_t prg8000 = nPRGBank * 0x2000;
+    uint32_t prgA000 = (prg8Count - 3) * 0x2000;
+    uint32_t prgC000 = (prg8Count - 2) * 0x2000;
+    uint32_t prgE000 = (prg8Count - 1) * 0x2000;
+
+    uint8_t activeChr0 = (nLatch0 == 0) ? nCHRBank0_FD8 : nCHRBank0_FE8;
+    uint8_t activeChr1 = (nLatch1 == 0) ? nCHRBank1_FD8 : nCHRBank1_FE8;
+
+    s += "===== MAPPER 009 - MMC2 =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += "Mapper MMC2 dùng CHR latch đặc biệt.\n";
+    s += "Khi PPU đọc tile ở vùng $0FD8/$0FE8/$1FD8/$1FE8, latch sẽ đổi bank CHR.\n";
+    s += "Mapper này nổi tiếng với Punch-Out!!.\n\n";
+
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số PRG banks 8KB  : %1\n").arg(prg8Count);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += QString("Số CHR banks 4KB  : %1\n").arg(nCHRBanks * 2);
+    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirromode));
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += QString("$8000-$9FFF : PRG bank 8KB %1 | offset ROM = 0x%2\n")
+        .arg(nPRGBank)
+        .arg(prg8000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$A000-$BFFF : PRG bank 8KB %1 | offset ROM = 0x%2 | cố định\n")
+        .arg(prg8Count - 3)
+        .arg(prgA000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$C000-$DFFF : PRG bank 8KB %1 | offset ROM = 0x%2 | cố định\n")
+        .arg(prg8Count - 2)
+        .arg(prgC000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$E000-$FFFF : PRG bank 8KB %1 | offset ROM = 0x%2 | cố định\n")
+        .arg(prg8Count - 1)
+        .arg(prgE000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += "\nCHR LATCH HIỆN TẠI:\n";
+    s += QString("Latch 0 cho vùng PPU $0000-$0FFF : %1 (%2)\n")
+        .arg(nLatch0)
+        .arg(nLatch0 == 0 ? "FD8" : "FE8");
+
+    s += QString("Latch 1 cho vùng PPU $1000-$1FFF : %1 (%2)\n")
+        .arg(nLatch1)
+        .arg(nLatch1 == 0 ? "FD8" : "FE8");
+
+    s += "\nTHANH GHI CHR BANK:\n";
+    s += QString("CHR Bank 0 FD8 : %1\n").arg(nCHRBank0_FD8);
+    s += QString("CHR Bank 0 FE8 : %1\n").arg(nCHRBank0_FE8);
+    s += QString("CHR Bank 1 FD8 : %1\n").arg(nCHRBank1_FD8);
+    s += QString("CHR Bank 1 FE8 : %1\n").arg(nCHRBank1_FE8);
+
+    s += "\nCHR BANK ĐANG ĐƯỢC DÙNG:\n";
+    s += QString("$0000-$0FFF : CHR bank 4KB %1 | offset CHR = 0x%2\n")
+        .arg(activeChr0)
+        .arg(activeChr0 * 0x1000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$1000-$1FFF : CHR bank 4KB %1 | offset CHR = 0x%2\n")
+        .arg(activeChr1)
+        .arg(activeChr1 * 0x1000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += "\nCÁC ĐỊA CHỈ LATCH:\n";
+    s += "$0FD8 : đổi Latch 0 sang FD8\n";
+    s += "$0FE8 : đổi Latch 0 sang FE8\n";
+    s += "$1FD8 : đổi Latch 1 sang FD8\n";
+    s += "$1FE8 : đổi Latch 1 sang FE8\n";
+
+    s += "\nGHI CHÚ:\n";
+    s += "MMC2 không chỉ đổi CHR bằng CPU write, mà còn tự đổi theo địa chỉ PPU đọc.\n";
+    s += "Vì vậy khi game vẽ sprite/background đặc biệt, latch có thể nhảy rất nhanh.\n";
+
+    return s;
+}

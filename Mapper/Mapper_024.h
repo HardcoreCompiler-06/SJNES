@@ -1,7 +1,7 @@
 #pragma once
 #include "Mapper.h"
 #include <cstdint>
-
+#include <QString>
 class Mapper_024 : public Mapper {
 public:
     Mapper_024(uint8_t prgBanks, uint8_t chrBanks);
@@ -9,17 +9,15 @@ public:
     bool muteVRC6 = false;
     bool cpuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
-
     bool ppuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) override;
-
     void reset() override;
     MIRROR mirror() override;
-
+    void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) override;
     void irqStep() override;
     bool irqState() override;
     void irqClear() override;
-
+    QString GetDebugInfo() override;
     float GetExpansionAudio() override;
 
 private:

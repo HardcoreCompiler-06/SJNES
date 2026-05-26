@@ -1,12 +1,18 @@
-#include "MarioEmulatorUI.h"
+#include "SJNES.h"
 #include <QtWidgets/QApplication>
+#include "SJNES.h"
+#include <QtWidgets/QApplication>
+#include <QIcon>
 
 int main(int argc, char* argv[])
 {
-    QApplication app(argc, argv);
+    QApplication a(argc, argv);
 
-    MarioEmulatorUI* window = new MarioEmulatorUI();
-    window->show();
+    a.setWindowIcon(QIcon("SJNES.ico"));
 
-    return app.exec();
+    SJNES w;
+    w.setWindowIcon(QIcon("SJNES.ico"));
+    w.show();
+
+    return a.exec();
 }

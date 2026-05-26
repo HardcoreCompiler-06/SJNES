@@ -166,3 +166,101 @@ void Mapper_004::irqClear() { bIRQActive = false; }
 MIRROR Mapper_004::mirror() {
     return mirrormode;
 }
+QString Mapper_004::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        default:                   return "Hardware / Không rõ";
+        }
+        };
+
+    s += "===== MAPPER 004 - MMC3 =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số PRG banks 8KB  : %1\n").arg(nPRGBanks * 2);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += QString("Số CHR banks 1KB  : %1\n").arg(nCHRBanks == 0 ? 8 : nCHRBanks * 8);
+    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrormode));
+
+    s += "\nTHANH GHI BANK SELECT:\n";
+    s += QString("Target Register R : %1\n").arg(nTargetRegister);
+    s += QString("PRG Bank Mode     : %1\n").arg(bPRGBankMode ? "1 - cố định bank áp chót tại $8000" : "0 - cố định bank áp chót tại $C000");
+    s += QString("CHR Inversion     : %1\n").arg(bCHRInversion ? "BẬT - đảo vùng CHR $0000/$1000" : "TẮT");
+
+    s += "\n8 THANH GHI R0-R7:\n";
+    for (int i = 0; i < 8; i++)
+    {
+        s += QString("R%1 = %2\n").arg(i).arg(pRegister[i]);
+    }
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += QString("$8000-$9FFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
+        .arg(pPRGBank[0], 6, 16, QChar('0'))
+        .arg(pPRGBank[0] / 0x2000)
+        .toUpper();
+
+    s += QString("$A000-$BFFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
+        .arg(pPRGBank[1], 6, 16, QChar('0'))
+        .arg(pPRGBank[1] / 0x2000)
+        .toUpper();
+
+    s += QString("$C000-$DFFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
+        .arg(pPRGBank[2], 6, 16, QChar('0'))
+        .arg(pPRGBank[2] / 0x2000)
+        .toUpper();
+
+    s += QString("$E000-$FFFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
+        .arg(pPRGBank[3], 6, 16, QChar('0'))
+        .arg(pPRGBank[3] / 0x2000)
+        .toUpper();
+
+    s += "\nCHR BANK HIỆN TẠI:\n";
+
+    if (nCHRBanks == 0)
+    {
+        s += "Game dùng CHR RAM. Các offset dưới đây là offset trong CHR RAM.\n";
+    }
+
+    const char* chrRanges[8] = {
+        "$0000-$03FF",
+        "$0400-$07FF",
+        "$0800-$0BFF",
+        "$0C00-$0FFF",
+        "$1000-$13FF",
+        "$1400-$17FF",
+        "$1800-$1BFF",
+        "$1C00-$1FFF"
+    };
+
+    for (int i = 0; i < 8; i++)
+    {
+        s += QString("%1 : offset CHR = 0x%2 | CHR bank 1KB = %3\n")
+            .arg(chrRanges[i])
+            .arg(pCHRBank[i], 6, 16, QChar('0'))
+            .arg(pCHRBank[i] / 0x0400)
+            .toUpper();
+    }
+
+    s += "\nTHÔNG TIN IRQ MMC3:\n";
+    s += QString("IRQ Enable        : %1\n").arg(bIRQEnable ? "BẬT" : "TẮT");
+    s += QString("IRQ Active        : %1\n").arg(bIRQActive ? "CÓ" : "KHÔNG");
+    s += QString("IRQ Reload/Update : %1\n").arg(bIRQUpdate ? "CÓ" : "KHÔNG");
+    s += QString("IRQ Counter       : %1\n").arg(nIRQCounter);
+    s += QString("IRQ Latch         : %1\n").arg(nIRQLatch);
+
+    s += "\nGIẢI THÍCH NHANH:\n";
+    s += "MMC3 dùng R0-R5 để chọn CHR bank và R6-R7 để chọn PRG bank.\n";
+    s += "PRG bank có kích thước 8KB, nên offset ROM thường nhảy theo 0x2000.\n";
+    s += "CHR bank có kích thước 1KB, nên offset CHR thường nhảy theo 0x0400.\n";
+    s += "IRQ MMC3 thường dùng để chia màn hình, ví dụ HUD cố định và nền cuộn riêng.\n";
+
+    return s;
+}

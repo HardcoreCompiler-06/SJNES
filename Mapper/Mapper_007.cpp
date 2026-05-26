@@ -97,3 +97,68 @@ MIRROR Mapper_007::mirror()
 {
     return mapper_mirror;
 }
+
+QString Mapper_007::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        default:                   return "Hardware / Không rõ";
+        }
+        };
+
+    uint8_t prg32Banks = nPRGBanks / 2;
+    if (prg32Banks == 0)
+        prg32Banks = 1;
+
+    uint8_t currentBank = nPRGBankSelect % prg32Banks;
+    uint32_t prgOffset = currentBank * 0x8000;
+
+    s += "===== MAPPER 007 - AXROM =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += "Mapper này đổi PRG theo bank 32KB.\n";
+    s += "AxROM thường dùng CHR RAM 8KB.\n";
+    s += "Mirroring là one-screen, chọn bằng bit 4 khi CPU ghi vào mapper.\n\n";
+
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số PRG banks 32KB : %1\n").arg(prg32Banks);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += QString("$8000-$FFFF : đang trỏ tới PRG bank 32KB số %1\n")
+        .arg(currentBank);
+    s += QString("Offset ROM  : 0x%1\n")
+        .arg(prgOffset, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += "\nCHR:\n";
+    if (nCHRBanks == 0)
+    {
+        s += "$0000-$1FFF : CHR RAM 8KB, cho phép PPU ghi\n";
+    }
+    else
+    {
+        s += "$0000-$1FFF : CHR ROM 8KB đầu, map thẳng\n";
+    }
+
+    s += "\nMIRRORING:\n";
+    s += QString("Kiểu mirroring hiện tại : %1\n").arg(mirrorToString(mapper_mirror));
+
+    s += "\nTHANH GHI MAPPER:\n";
+    s += QString("nPRGBankSelect : %1\n").arg(nPRGBankSelect);
+    s += "Bit 0-2: chọn PRG bank 32KB\n";
+    s += "Bit 4  : chọn one-screen mirroring thấp/cao\n";
+
+    s += "\nGHI CHÚ:\n";
+    s += "Offset ROM nhảy theo 0x8000 vì mỗi bank PRG của AxROM là 32KB.\n";
+    s += "Một số game AxROM dùng mirroring một màn hình để đổi trang nametable.\n";
+
+    return s;
+}

@@ -4,7 +4,7 @@
 #include "PPU.h"
 #include "APU.h"
 #include "Cartridge.h"
-#include "CPU6502.h" // Nhớ include CPU để gọi hàm clock()
+#include "CPU6502.h"
 
 class Bus {
 public:
@@ -18,6 +18,9 @@ public:
     uint8_t controller_state = 0x00;
     uint8_t controller_strobe = 0x00;
     uint8_t controller_shift = 0x00;
+    uint8_t controller_state2 = 0x00;
+    uint8_t controller_shift2 = 0x00;
+
 
     // === CÁC BIẾN QUẢN LÝ DMA CHUẨN XÁC ===
     uint8_t dma_page = 0x00;
@@ -71,7 +74,11 @@ public:
         }
         else if (addr == 0x4016) {
             controller_strobe = data & 0x01;
-            controller_shift = controller_state;
+
+            if (controller_strobe) {
+                controller_shift = controller_state;    // tay 1
+                controller_shift2 = controller_state2;  // tay 2
+            }
         }
         else if ((addr >= 0x4000 && addr <= 0x4013) || addr == 0x4015 || addr == 0x4017) {
             n_apu.cpuWrite(addr, data);
@@ -88,6 +95,7 @@ public:
             data = ram[addr & 0x07FF];
         }
         else if (addr == 0x4016) {
+            // tay 1
             if (controller_strobe) {
                 data = (controller_state & 0x80) ? 1 : 0;
             }
@@ -95,6 +103,19 @@ public:
                 data = (controller_shift & 0x80) ? 1 : 0;
                 controller_shift <<= 1;
             }
+
+            data |= 0x40;
+        }
+        else if (addr == 0x4017) {
+            // tay 2
+            if (controller_strobe) {
+                data = (controller_state2 & 0x80) ? 1 : 0;
+            }
+            else {
+                data = (controller_shift2 & 0x80) ? 1 : 0;
+                controller_shift2 <<= 1;
+            }
+
             data |= 0x40;
         }
         else if (addr >= 0x2000 && addr <= 0x3FFF) {

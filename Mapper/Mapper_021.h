@@ -1,6 +1,6 @@
 #pragma once
 #include "Mapper.h"
-
+#include <QString>
 class Mapper_021 : public Mapper {
 public:
     Mapper_021(uint8_t prgBanks, uint8_t chrBanks);
@@ -12,7 +12,7 @@ public:
     bool ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) override;
     MIRROR mirror() override;
     void reset() override;
-
+    QString GetDebugInfo() override;
     bool irqState() override;
     void irqClear() override;
     void irqStep();

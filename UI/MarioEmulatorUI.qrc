@@ -1,4 +1,4 @@
 <RCC>
-    <qresource prefix="MarioEmulatorUI">
+    <qresource prefix="SJNES">
     </qresource>
 </RCC>

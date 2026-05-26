@@ -1,13 +1,13 @@
 #pragma once
 #include "Mapper.h"
-
+#include <QString>
 class Mapper_004 : public Mapper {
 public:
     MIRROR mirror() override;
 
     Mapper_004(uint8_t prgBanks, uint8_t chrBanks);
     ~Mapper_004();
-
+    QString GetDebugInfo() override;
     bool cpuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
 

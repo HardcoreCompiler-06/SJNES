@@ -128,3 +128,69 @@ MIRROR Mapper_221::mirror()
 {
     return mirrorMode;
 }
+
+QString Mapper_221::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        default:                   return "Không rõ";
+        }
+        };
+
+    uint32_t base = (cmd & 0x00FC) >> 2;
+
+    s += "===== MAPPER 221 - NTDEC N625092 / MULTICART =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += "Mapper này thường gặp ở băng multicart.\n";
+    s += "Bank được chọn chủ yếu bằng địa chỉ ghi, data thường không quan trọng.\n\n";
+
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrorMode));
+
+    s += "\nTHANH GHI MULTICART:\n";
+    s += QString("cmd  : 0x%1\n").arg(cmd, 4, 16, QChar('0')).toUpper();
+    s += QString("bank : %1\n").arg(bank);
+    s += QString("base : %1\n").arg(base);
+
+    s += "\nGIẢI MÃ CMD:\n";
+    s += QString("cmd bit 0 - Mirroring      : %1\n").arg(cmd & 0x0001 ? "Horizontal" : "Vertical");
+    s += QString("cmd bit 1 - Mode           : %1\n").arg(cmd & 0x0002 ? "16KB switch" : "32KB style");
+    s += QString("cmd bit 8 - 16KB sub-mode  : %1\n").arg(cmd & 0x0100 ? "$8000=base|bank, $C000=base|7" : "$8000 even, $C000 odd");
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += QString("$8000-$BFFF : PRG bank 16KB = %1 | offset ROM = 0x%2\n")
+        .arg(prgBank8000)
+        .arg(prgBank8000 * 0x4000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$C000-$FFFF : PRG bank 16KB = %1 | offset ROM = 0x%2\n")
+        .arg(prgBankC000)
+        .arg(prgBankC000 * 0x4000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += "\nCHR MAPPING:\n";
+    if (nCHRBanks == 0)
+    {
+        s += "$0000-$1FFF : CHR RAM 8KB, PPU có thể ghi\n";
+    }
+    else
+    {
+        s += "$0000-$1FFF : CHR ROM/RAM map thẳng\n";
+    }
+
+    s += "\nGHI CHÚ:\n";
+    s += "Ghi $8000-$BFFF cập nhật cmd.\n";
+    s += "Ghi $C000-$FFFF cập nhật bank = addr & 7.\n";
+    s += "Sau mỗi lần ghi, Sync() sẽ tính lại PRG bank và mirroring.\n";
+
+    return s;
+}

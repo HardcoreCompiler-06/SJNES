@@ -26,13 +26,13 @@
     <QtRcc Include="MarioEmulatorUI.qrc">
       <Filter>Resource Files</Filter>
     </QtRcc>
-    <QtUic Include="MarioEmulatorUI.ui">
+    <QtUic Include="SJNES.ui">
       <Filter>Form Files</Filter>
     </QtUic>
-    <QtMoc Include="MarioEmulatorUI.h">
+    <QtMoc Include="SJNES.h">
       <Filter>Header Files</Filter>
     </QtMoc>
-    <ClCompile Include="MarioEmulatorUI.cpp">
+    <ClCompile Include="SJNES.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -98,6 +98,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="GpuScreenWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="AudioWaveWindow.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MapperViewerWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -177,10 +183,27 @@
     <ClInclude Include="Mapper_221.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource1.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <QtMoc Include="GpuScreenWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
+    <QtMoc Include="AudioWaveWindow.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="MapperViewerWindow.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="SJNES.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>

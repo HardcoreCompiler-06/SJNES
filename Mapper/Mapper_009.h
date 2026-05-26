@@ -1,6 +1,6 @@
 #pragma once
 #include "Mapper.h"
-
+#include <QString>
 class Mapper_009 : public Mapper {
 public:
     Mapper_009(uint8_t prgBanks, uint8_t chrBanks);
@@ -10,7 +10,7 @@ public:
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
     bool ppuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) override;
-
+    QString GetDebugInfo() override;
     void reset() override;
 
     // Khai báo hàm mirror() để khớp với file .cpp

@@ -200,3 +200,90 @@ void Mapper_021::irqStep() {
 MIRROR Mapper_021::mirror() {
     return (MIRROR)mirrormode;
 }
+QString Mapper_021::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        default:                   return "Không rõ";
+        }
+        };
+
+    s += "===== MAPPER 021 - VRC4 =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số PRG banks 8KB  : %1\n").arg(nPRGBanks * 2);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += QString("Số CHR banks 1KB  : %1\n").arg(nCHRBanks == 0 ? 8 : nCHRBanks * 8);
+    s += QString("Mirroring         : %1\n").arg(mirrorToString((MIRROR)mirrormode));
+
+    s += "\nCHẾ ĐỘ PRG:\n";
+    s += QString("PRG Swap Mode     : %1\n").arg(nPRGSwapMode);
+    if (nPRGSwapMode == 0)
+    {
+        s += "$8000-$9FFF đổi bằng PRG select 0\n";
+        s += "$A000-$BFFF đổi bằng PRG select 1\n";
+        s += "$C000-$DFFF cố định bank áp chót\n";
+    }
+    else
+    {
+        s += "$8000-$9FFF cố định bank áp chót\n";
+        s += "$A000-$BFFF đổi bằng PRG select 1\n";
+        s += "$C000-$DFFF đổi bằng PRG select 0\n";
+    }
+
+    s += "\nTHANH GHI CHỌN PRG:\n";
+    s += QString("PRG Select 0      : %1\n").arg(nPRGBankSelect[0]);
+    s += QString("PRG Select 1      : %1\n").arg(nPRGBankSelect[1]);
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    const char* prgRange[4] = {
+        "$8000-$9FFF",
+        "$A000-$BFFF",
+        "$C000-$DFFF",
+        "$E000-$FFFF"
+    };
+
+    for (int i = 0; i < 4; i++)
+    {
+        s += QString("%1 : offset ROM = 0x%2 | PRG bank 8KB = %3\n")
+            .arg(prgRange[i])
+            .arg(pPRGBank[i], 6, 16, QChar('0'))
+            .arg(pPRGBank[i] / 0x2000)
+            .toUpper();
+    }
+
+    s += "\nCHR BANK HIỆN TẠI:\n";
+    for (int i = 0; i < 8; i++)
+    {
+        uint16_t start = i * 0x0400;
+        s += QString("$%1-$%2 : select=%3 | offset CHR=0x%4 | CHR bank 1KB=%5\n")
+            .arg(start, 4, 16, QChar('0'))
+            .arg(start + 0x03FF, 4, 16, QChar('0'))
+            .arg(nCHRBankSelect[i])
+            .arg(pCHRBank[i], 6, 16, QChar('0'))
+            .arg(pCHRBank[i] / 0x0400)
+            .toUpper();
+    }
+
+    s += "\nTHÔNG TIN IRQ VRC4:\n";
+    s += QString("IRQ Enable          : %1\n").arg(bIRQEnable ? "BẬT" : "TẮT");
+    s += QString("IRQ Enable After ACK: %1\n").arg(bIRQEnableAfterAck ? "CÓ" : "KHÔNG");
+    s += QString("IRQ Active          : %1\n").arg(bIRQActive ? "CÓ" : "KHÔNG");
+    s += QString("IRQ Reload          : %1\n").arg(nIRQReload);
+    s += QString("IRQ Counter         : %1\n").arg(nIRQCounter);
+    s += QString("IRQ Prescaler       : %1\n").arg(nIRQPrescaler);
+
+    s += "\nGHI CHÚ:\n";
+    s += "Mapper 021 là VRC4. PRG bank 8KB, CHR bank 1KB.\n";
+    s += "IRQ dùng prescaler 342 và counter 8-bit để tạo ngắt scanline.\n";
+
+    return s;
+}

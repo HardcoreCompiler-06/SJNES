@@ -56,3 +56,56 @@ bool Mapper_003::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
 void Mapper_003::reset() {
     nCHRBankSelect = 0;
 }
+QString Mapper_003::GetDebugInfo()
+{
+    QString s;
+
+    s += "===== MAPPER 003 - CNROM =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += "Mapper này không đổi bank PRG.\n";
+    s += "Mapper này chỉ đổi bank CHR 8KB cho PPU.\n\n";
+
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+
+    if (nPRGBanks == 1)
+    {
+        s += "$8000-$BFFF : PRG bank 0\n";
+        s += "$C000-$FFFF : mirror PRG bank 0\n";
+    }
+    else
+    {
+        s += "$8000-$FFFF : PRG 32KB cố định\n";
+        s += "$8000-$BFFF : PRG bank 0\n";
+        s += "$C000-$FFFF : PRG bank 1\n";
+    }
+
+    s += "\nCHR BANK HIỆN TẠI:\n";
+
+    if (nCHRBanks == 0)
+    {
+        s += "$0000-$1FFF : không có CHR ROM / có thể là CHR RAM\n";
+    }
+    else
+    {
+        s += QString("$0000-$1FFF : đang trỏ tới CHR bank 8KB số %1\n")
+            .arg(nCHRBankSelect);
+
+        s += QString("Offset CHR ROM     : 0x%1\n")
+            .arg(nCHRBankSelect * 0x2000, 6, 16, QChar('0'))
+            .toUpper();
+    }
+
+    s += "\nTHANH GHI MAPPER:\n";
+    s += QString("nCHRBankSelect     : %1\n").arg(nCHRBankSelect);
+
+    s += "\nGHI CHÚ:\n";
+    s += "CPU ghi vào vùng $8000-$FFFF để chọn bank CHR.\n";
+    s += "CNROM thường dùng 2 bit thấp của data để chọn tối đa 4 bank CHR.\n";
+    s += "PPU đọc $0000-$1FFF sẽ lấy dữ liệu từ CHR bank đang chọn.\n";
+
+    return s;
+}

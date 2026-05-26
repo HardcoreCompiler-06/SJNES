@@ -1,11 +1,11 @@
 #pragma once
 #include "Mapper.h"
-
+#include <QString>
 class Mapper_087 : public Mapper {
 public:
     Mapper_087(uint8_t prgBanks, uint8_t chrBanks);
     ~Mapper_087();
-
+    QString GetDebugInfo() override;
     bool cpuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
     bool ppuMapRead(uint16_t addr, uint32_t& mapped_addr) override;

@@ -66,7 +66,14 @@ struct Triangle {
         last_output = tri_wave_table[tri_phase];
         return last_output;
     }
+    float DebugOutput() const {
+        if (!enabled || length_counter == 0 || linear_counter == 0)
+            return 0.0f;
 
+        // tri_wave_table là 0..15, đổi về -1..1 để vẽ waveform cân giữa
+        float v = tri_wave_table[tri_phase & 31] / 15.0f;
+        return v * 2.0f - 1.0f;
+    }
     void WriteReg(uint8_t reg, uint8_t data) {
         switch (reg) {
         case 0:  // $4008

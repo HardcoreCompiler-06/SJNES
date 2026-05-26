@@ -137,3 +137,20 @@ void APU::GetOutputSampleStereo(float& left, float& right) {
     left = lpL + tnd_filtered;
     right = lpR + tnd_filtered;
 }
+AudioDebugChannels APU::GetDebugChannels()
+{
+    AudioDebugChannels ch;
+
+    float p1 = f1.Output();
+    float p2 = f2.Output();
+    float n = noise.Output();
+    float d = dmc.Output();
+
+    ch.pulse1 = mutePulse1 ? 0.0f : ((p1 / 15.0f) * 2.0f - 1.0f);
+    ch.pulse2 = mutePulse2 ? 0.0f : ((p2 / 15.0f) * 2.0f - 1.0f);
+    ch.triangle = muteTriangle ? 0.0f : tri.DebugOutput();
+    ch.noise = muteNoise ? 0.0f : ((n / 15.0f) * 2.0f - 1.0f);
+    ch.dmc = muteDMC ? 0.0f : ((d / 127.0f) * 2.0f - 1.0f);
+
+    return ch;
+}

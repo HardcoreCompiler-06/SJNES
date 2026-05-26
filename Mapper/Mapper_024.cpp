@@ -593,3 +593,137 @@ float Mapper_024::GetExpansionAudio()
 
     return mix * 0.35f;
 }
+void Mapper_024::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
+{
+    if (muteVRC6)
+    {
+        ch1 = 0.0f;
+        ch2 = 0.0f;
+        ch3 = 0.0f;
+        return;
+    }
+
+    ch1 = pulse1.output;
+    ch2 = pulse2.output;
+    ch3 = saw.output;
+}
+QString Mapper_024::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        default:                   return "Không rõ";
+        }
+        };
+
+    uint32_t prg8Count = nPRGBanks * 2;
+    uint32_t chr1kCount = (nCHRBanks == 0) ? 8 : (nCHRBanks * 8);
+
+    s += "===== MAPPER 024 - KONAMI VRC6 =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số PRG banks 8KB  : %1\n").arg(prg8Count);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += QString("Số CHR banks 1KB  : %1\n").arg(chr1kCount);
+    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrorMode));
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += QString("$8000-$BFFF : PRG bank 16KB = %1 | offset ROM = 0x%2\n")
+        .arg(prg16Bank)
+        .arg((prg16Bank % nPRGBanks) * 0x4000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$C000-$DFFF : PRG bank 8KB  = %1 | offset ROM = 0x%2\n")
+        .arg(prg8Bank)
+        .arg((prg8Bank % prg8Count) * 0x2000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += QString("$E000-$FFFF : PRG bank 8KB cuối = %1 | offset ROM = 0x%2\n")
+        .arg(prg8Count - 1)
+        .arg((prg8Count - 1) * 0x2000, 6, 16, QChar('0'))
+        .toUpper();
+
+    s += "\nCHR BANK HIỆN TẠI:\n";
+    for (int i = 0; i < 8; i++)
+    {
+        uint16_t addr = i * 0x0400;
+        uint8_t reg = GetChrRegisterForPpuAddress(addr);
+        uint8_t realBank = GetChrBankForPpuAddress(addr);
+
+        s += QString("$%1-$%2 : dùng CHR[%3]=%4 | bank thực=%5 | offset CHR=0x%6\n")
+            .arg(addr, 4, 16, QChar('0'))
+            .arg(addr + 0x03FF, 4, 16, QChar('0'))
+            .arg(reg)
+            .arg(chrBank[reg])
+            .arg(realBank)
+            .arg((realBank % chr1kCount) * 0x0400, 6, 16, QChar('0'))
+            .toUpper();
+    }
+
+    s += "\nNAMETABLE / MIRRORING:\n";
+    s += QString("Thanh ghi $B003             : 0x%1\n").arg(b003, 2, 16, QChar('0')).toUpper();
+    s += QString("PPU Banking Mode            : %1\n").arg(ppuBankingMode);
+    s += QString("Nametable dùng CHR-ROM      : %1\n").arg(useChrRomNametables ? "BẬT" : "TẮT");
+    s += QString("Điều khiển CHR A10          : %1\n").arg(chrA10Control ? "BẬT" : "TẮT");
+    s += QString("PRG RAM                     : %1\n").arg(prgRamEnable ? "BẬT" : "TẮT");
+
+    s += "\nNguồn Nametable:\n";
+    for (int i = 0; i < 4; i++)
+    {
+        s += QString("Nametable %1 : CIRAM source=%2 | CHR-NT bank=%3\n")
+            .arg(i)
+            .arg(ntSource[i])
+            .arg(ntChrBank[i]);
+    }
+
+    s += "\nTHÔNG TIN IRQ:\n";
+    s += QString("IRQ Enable           : %1\n").arg(irqEnable ? "BẬT" : "TẮT");
+    s += QString("IRQ Enable After ACK : %1\n").arg(irqEnableAfterAck ? "CÓ" : "KHÔNG");
+    s += QString("IRQ Active           : %1\n").arg(irqActive ? "CÓ" : "KHÔNG");
+    s += QString("IRQ Mode             : %1\n").arg(irqModeCycle ? "CPU Cycle" : "Scanline");
+    s += QString("IRQ Latch            : %1\n").arg(irqLatch);
+    s += QString("IRQ Counter          : %1\n").arg(irqCounter);
+    s += QString("IRQ Prescaler        : %1\n").arg(irqPrescaler);
+
+    s += "\nÂM THANH MỞ RỘNG VRC6:\n";
+    s += QString("Mute VRC6 : %1\n").arg(muteVRC6 ? "CÓ" : "KHÔNG");
+
+    s += "\nVRC6 Pulse 1:\n";
+    s += QString("Enable=%1 | Volume=%2 | Duty=%3 | Mode=%4 | Period=%5 | Timer=%6 | Output=%7\n")
+        .arg(pulse1.enable ? "BẬT" : "TẮT")
+        .arg(pulse1.volume)
+        .arg(pulse1.duty)
+        .arg(pulse1.mode ? "Constant" : "Duty")
+        .arg(pulse1.period)
+        .arg(pulse1.timer)
+        .arg(pulse1.output);
+
+    s += "\nVRC6 Pulse 2:\n";
+    s += QString("Enable=%1 | Volume=%2 | Duty=%3 | Mode=%4 | Period=%5 | Timer=%6 | Output=%7\n")
+        .arg(pulse2.enable ? "BẬT" : "TẮT")
+        .arg(pulse2.volume)
+        .arg(pulse2.duty)
+        .arg(pulse2.mode ? "Constant" : "Duty")
+        .arg(pulse2.period)
+        .arg(pulse2.timer)
+        .arg(pulse2.output);
+
+    s += "\nVRC6 Saw:\n";
+    s += QString("Enable=%1 | Rate=%2 | Period=%3 | Timer=%4 | Step=%5 | Acc=%6 | Output=%7\n")
+        .arg(saw.enable ? "BẬT" : "TẮT")
+        .arg(saw.rate)
+        .arg(saw.period)
+        .arg(saw.timer)
+        .arg(saw.step)
+        .arg(saw.accumulator)
+        .arg(saw.output);
+
+    return s;
+}

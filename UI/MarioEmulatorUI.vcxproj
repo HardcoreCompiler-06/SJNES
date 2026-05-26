@@ -16,6 +16,7 @@
     <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">10.0</WindowsTargetPlatformVersion>
     <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">10.0</WindowsTargetPlatformVersion>
     <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
+    <ProjectName>SJ-NES</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
@@ -93,10 +94,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="APU.cpp" />
+    <ClCompile Include="AudioWaveWindow.cpp" />
     <ClCompile Include="Cartridge.cpp" />
     <ClCompile Include="CPU6502.cpp" />
     <ClCompile Include="GpuScreenWidget.cpp" />
     <ClCompile Include="Mapper.cpp" />
+    <ClCompile Include="MapperViewerWindow.cpp" />
     <ClCompile Include="Mapper_000.cpp" />
     <ClCompile Include="mapper_001.cpp" />
     <ClCompile Include="Mapper_002.cpp" />
@@ -113,14 +116,15 @@
     <ClCompile Include="Mapper_221.cpp" />
     <ClCompile Include="PPU.cpp" />
     <QtRcc Include="MarioEmulatorUI.qrc" />
-    <QtUic Include="MarioEmulatorUI.ui" />
-    <QtMoc Include="MarioEmulatorUI.h" />
-    <ClCompile Include="MarioEmulatorUI.cpp" />
+    <QtUic Include="SJNES.ui" />
+    <QtMoc Include="SJNES.h" />
+    <ClCompile Include="SJNES.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="APU.h" />
     <ClInclude Include="ApuEnvelope.h" />
+    <QtMoc Include="AudioWaveWindow.h" />
     <ClInclude Include="Bus.h" />
     <ClInclude Include="Cartridge.h" />
     <ClInclude Include="CPU6502.h" />
@@ -130,6 +134,7 @@
     <QtMoc Include="GpuScreenWidget.h" />
     <ClInclude Include="LogBuffer.h" />
     <ClInclude Include="Mapper.h" />
+    <QtMoc Include="MapperViewerWindow.h" />
     <ClInclude Include="Mapper_000.h" />
     <ClInclude Include="Mapper_001.h" />
     <ClInclude Include="Mapper_002.h" />
@@ -144,7 +149,12 @@
     <ClInclude Include="Mapper_221.h" />
     <ClInclude Include="Noise.h" />
     <ClInclude Include="PPU.h" />
+    <ClInclude Include="resource.h" />
+    <ClInclude Include="resource1.h" />
     <ClInclude Include="Triangle.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="SJNES.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">

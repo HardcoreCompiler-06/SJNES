@@ -148,3 +148,95 @@ bool Mapper_001::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     }
     return false;
 }
+
+QString Mapper_001::GetDebugInfo()
+{
+    QString s;
+
+    auto mirrorToString = [](MIRROR m) -> QString {
+        switch (m)
+        {
+        case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
+        case MIRROR::VERTICAL:     return "Vertical / Dọc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_HI: return "One-screen cao";
+        default:                   return "Hardware / Không rõ";
+        }
+        };
+
+    uint8_t chrMode = (nControlRegister >> 4) & 0x01;
+    uint8_t prgMode = (nControlRegister >> 2) & 0x03;
+    uint8_t mirrorMode = nControlRegister & 0x03;
+
+    s += "===== MAPPER 001 - MMC1 =====\n\n";
+
+    s += "THÔNG TIN CHUNG:\n";
+    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
+    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += QString("Kiểu mirroring    : %1\n").arg(mirrorToString(currentMirror));
+
+    s += "\nTHANH GHI ĐIỀU KHIỂN MMC1:\n";
+    s += QString("Control Register  : 0x%1\n")
+        .arg(nControlRegister, 2, 16, QChar('0')).toUpper();
+    s += QString("Mirror bits       : %1\n").arg(mirrorMode);
+    s += QString("PRG mode          : %1 - ").arg(prgMode);
+
+    if (prgMode == 0 || prgMode == 1)
+        s += "32KB switch tại $8000-$FFFF\n";
+    else if (prgMode == 2)
+        s += "Cố định bank đầu tại $8000, đổi bank tại $C000\n";
+    else
+        s += "Đổi bank tại $8000, cố định bank cuối tại $C000\n";
+
+    s += QString("CHR mode          : %1 - ").arg(chrMode);
+    s += (chrMode ? "2 bank CHR 4KB riêng\n" : "1 bank CHR 8KB\n");
+
+    s += "\nBỘ GHI DỊCH MMC1:\n";
+    s += QString("Load Register     : 0x%1\n")
+        .arg(nLoadRegister, 2, 16, QChar('0')).toUpper();
+    s += QString("Số bit đã nạp     : %1 / 5\n").arg(nLoadRegisterCount);
+
+    s += "\nTHANH GHI CHỌN BANK:\n";
+    s += QString("CHR 4KB Low       : %1\n").arg(nCHRBankSelect4Lo);
+    s += QString("CHR 4KB High      : %1\n").arg(nCHRBankSelect4Hi);
+    s += QString("CHR 8KB           : %1\n").arg(nCHRBankSelect8);
+    s += QString("PRG 16KB Low      : %1\n").arg(nPRGBankSelect16Lo);
+    s += QString("PRG 16KB High     : %1\n").arg(nPRGBankSelect16Hi);
+    s += QString("PRG 32KB          : %1\n").arg(nPRGBankSelect32);
+
+    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += QString("$8000-$BFFF : offset ROM = 0x%1 | PRG bank 16KB = %2\n")
+        .arg(pPRGBank[0], 6, 16, QChar('0'))
+        .arg(pPRGBank[0] / 0x4000)
+        .toUpper();
+
+    s += QString("$C000-$FFFF : offset ROM = 0x%1 | PRG bank 16KB = %2\n")
+        .arg(pPRGBank[1], 6, 16, QChar('0'))
+        .arg(pPRGBank[1] / 0x4000)
+        .toUpper();
+
+    s += "\nCHR BANK HIỆN TẠI:\n";
+
+    if (nCHRBanks == 0)
+    {
+        s += "$0000-$1FFF : CHR RAM\n";
+    }
+    else
+    {
+        s += QString("$0000-$0FFF : offset CHR = 0x%1 | CHR bank 4KB = %2\n")
+            .arg(pCHRBank[0], 6, 16, QChar('0'))
+            .arg(pCHRBank[0] / 0x1000)
+            .toUpper();
+
+        s += QString("$1000-$1FFF : offset CHR = 0x%1 | CHR bank 4KB = %2\n")
+            .arg(pCHRBank[1], 6, 16, QChar('0'))
+            .arg(pCHRBank[1] / 0x1000)
+            .toUpper();
+    }
+
+    s += "\nGHI CHÚ:\n";
+    s += "MMC1 nạp từng bit vào shift register. Khi đủ 5 bit, mapper mới chốt vào thanh ghi đích.\n";
+    s += "Vì vậy Load Register và số bit đã nạp có thể thay đổi rất nhanh khi game đang chạy.\n";
+
+    return s;
+}

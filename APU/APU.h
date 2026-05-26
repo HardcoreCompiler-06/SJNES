@@ -6,7 +6,17 @@
 #include "Triangle.h"
 #include "DMC.h"
 #include "Noise.h"
+struct AudioDebugChannels {
+    float pulse1 = 0.0f;
+    float pulse2 = 0.0f;
+    float triangle = 0.0f;
+    float noise = 0.0f;
+    float dmc = 0.0f;
 
+    float vrc6Pulse1 = 0.0f;
+    float vrc6Pulse2 = 0.0f;
+    float vrc6Saw = 0.0f;
+};
 class Bus;
 
 class APU {
@@ -19,7 +29,7 @@ public:
     double             sample_counter = 0.0;
     double             cycles_per_sample = 1789773.0 / 44100.0;
     std::vector<float> audio_buffer;
-
+    AudioDebugChannels GetDebugChannels();
     void    cpuWrite(uint16_t addr, uint8_t data);
     uint8_t cpuRead(uint16_t addr);
     void    Step();

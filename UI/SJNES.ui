@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SJNESClass</class>
+ <widget class="QMainWindow" name="SJNESClass">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>886</width>
+    <height>649</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>SJNES</string>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <widget class="QPlainTextEdit" name="txtConsole">
+    <property name="geometry">
+     <rect>
+      <x>0</x>
+      <y>0</y>
+      <width>141</width>
+      <height>111</height>
+     </rect>
+    </property>
+   </widget>
+   <widget class="GpuScreenWidget" name="gameScreen" native="true">
+    <property name="geometry">
+     <rect>
+      <x>140</x>
+      <y>0</y>
+      <width>601</width>
+      <height>571</height>
+     </rect>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>886</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuFile">
+    <property name="title">
+     <string>File</string>
+    </property>
+    <addaction name="actOpenROM"/>
+    <addaction name="actReset"/>
+    <addaction name="actPause"/>
+    <addaction name="actExit"/>
+   </widget>
+   <widget class="QMenu" name="menuAUDIO">
+    <property name="title">
+     <string>Audio</string>
+    </property>
+    <widget class="QMenu" name="Audio">
+     <property name="title">
+      <string>Speaker</string>
+     </property>
+     <addaction name="actMono"/>
+     <addaction name="actStereo"/>
+    </widget>
+    <widget class="QMenu" name="Debug">
+     <property name="title">
+      <string>Debug</string>
+     </property>
+     <addaction name="actPulse1"/>
+     <addaction name="actPulse2"/>
+     <addaction name="actTriangle"/>
+     <addaction name="actNoise"/>
+     <addaction name="actDMC"/>
+     <addaction name="actVRC6"/>
+    </widget>
+    <addaction name="Audio"/>
+    <addaction name="Debug"/>
+   </widget>
+   <widget class="QMenu" name="menuFilter">
+    <property name="title">
+     <string>filter</string>
+    </property>
+    <addaction name="actPixelPerfect"/>
+    <addaction name="actScanline"/>
+    <addaction name="actCrtLite"/>
+   </widget>
+   <widget class="QMenu" name="menuDebug">
+    <property name="title">
+     <string>Debug</string>
+    </property>
+    <addaction name="actAudioWaveform"/>
+    <addaction name="actMapperViewer"/>
+   </widget>
+   <addaction name="menuFile"/>
+   <addaction name="menuAUDIO"/>
+   <addaction name="menuFilter"/>
+   <addaction name="menuDebug"/>
+  </widget>
+  <action name="actOpenROM">
+   <property name="text">
+    <string>Open ROM</string>
+   </property>
+  </action>
+  <action name="actReset">
+   <property name="text">
+    <string>RESET</string>
+   </property>
+  </action>
+  <action name="actPause">
+   <property name="text">
+    <string>Pause</string>
+   </property>
+  </action>
+  <action name="actExit">
+   <property name="text">
+    <string>Exit</string>
+   </property>
+  </action>
+  <action name="actMono">
+   <property name="text">
+    <string>Mono</string>
+   </property>
+  </action>
+  <action name="actStereo">
+   <property name="text">
+    <string>Stereo</string>
+   </property>
+  </action>
+  <action name="actPulse1">
+   <property name="text">
+    <string>Pulse1</string>
+   </property>
+  </action>
+  <action name="actPulse2">
+   <property name="text">
+    <string>Pulse2</string>
+   </property>
+  </action>
+  <action name="actTriangle">
+   <property name="text">
+    <string>Triangle</string>
+   </property>
+  </action>
+  <action name="actNoise">
+   <property name="text">
+    <string>Noise</string>
+   </property>
+  </action>
+  <action name="actDMC">
+   <property name="text">
+    <string>DMC</string>
+   </property>
+  </action>
+  <action name="actVRC6">
+   <property name="text">
+    <string>VRC6</string>
+   </property>
+  </action>
+  <action name="actPixelPerfect">
+   <property name="text">
+    <string>Pixel perfect</string>
+   </property>
+  </action>
+  <action name="actScanline">
+   <property name="text">
+    <string>Scanline</string>
+   </property>
+  </action>
+  <action name="actCrtLite">
+   <property name="text">
+    <string>CRT Lite</string>
+   </property>
+  </action>
+  <action name="actAudioWaveform">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="text">
+    <string>Audio Waveform</string>
+   </property>
+  </action>
+  <action name="actMapperViewer">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Mapper Viewer</string>
+   </property>
+  </action>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <customwidgets>
+  <customwidget>
+   <class>GpuScreenWidget</class>
+   <extends>QWidget</extends>
+   <header location="global">GpuScreenWidget.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>
