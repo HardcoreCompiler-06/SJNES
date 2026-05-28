@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <memory>
 #include <QImage>
+#include <QColor>
 #include "Cartridge.h"
 
 class PPU {
@@ -31,6 +32,14 @@ public:
     // XUẤT HÌNH ẢNH RA QT CỦA ANH
     // ==============================================================================
     QImage GetScreen();
+
+    // ==============================================================================
+    // HÀM PHỤ TRỢ CHO DEBUG / SPRITE VIEWER
+    // ==============================================================================
+    uint8_t DebugPPURead(uint16_t addr);
+    uint8_t GetOAMByte(uint8_t index) const;
+    uint8_t GetPPUCtrl() const;
+    QColor GetNESColor(uint8_t index) const;
 
     // ==============================================================================
     // CÁC BIẾN TRẠNG THÁI QUAN TRỌNG ĐỂ BUS.CPP VÀ UI GỌI

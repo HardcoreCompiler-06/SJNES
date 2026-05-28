@@ -1,5 +1,6 @@
 #include "PPU.h"
 #include "Mapper_004.h"
+#include "Mapper_005.h"
 #include <QDebug>
 // ==============================================================================
 // KHỞI TẠO PPU & BẢNG MÀU
@@ -163,15 +164,55 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
 uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
     uint8_t data = 0x00;
     addr &= 0x3FFF;
-
     if (addr <= 0x1FFF)
         NotifyMapperA12(addr);
-
     if (cart && cart->ppuRead(addr, data)) return data;
     else if (addr <= 0x1FFF)
         data = tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF];
-    else if (addr >= 0x2000 && addr <= 0x3EFF) {
-        addr &= 0x0FFF;
+    else if (addr >= 0x2000 && addr <= 0x3EFF)
+    {
+        uint16_t ntAddr = addr & 0x0FFF;
+        int ntIndex = ntAddr / 0x0400;
+        uint16_t offset = ntAddr & 0x03FF;
+
+        // =========================
+        // MMC5 nametable mapping
+        // =========================
+        if (cart && cart->pMapper)
+        {
+            if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+            {
+                uint8_t source = mmc5->GetNtSource(ntIndex);
+
+                switch (source)
+                {
+                case 0:
+                    data = tblName[0][offset];
+                    return data;
+
+                case 1:
+                    data = tblName[1][offset];
+                    return data;
+
+                case 2:
+                    data = mmc5->ReadExRam(offset);
+                    return data;
+
+                case 3:
+                    if (offset < 0x03C0)
+                        data = mmc5->GetFillTile();
+                    else
+                        data = mmc5->GetFillAttr();
+
+                    return data;
+                }
+            }
+        }
+
+        // =========================
+        // Mirroring cũ cho mapper thường
+        // =========================
+        addr = ntAddr;
         MIRROR m = cart->mirror;
         if (cart->pMapper != nullptr) {
             MIRROR mapper_mirror = cart->pMapper->mirror();
@@ -211,20 +252,61 @@ uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
 void PPU::ppuWrite(uint16_t addr, uint8_t data) {
     addr &= 0x3FFF;
 
-    if (cart && cart->ppuWrite(addr, data)) return;
-    else if (addr <= 0x1FFF)
-        tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF] = data;
-    else if (addr >= 0x2000 && addr <= 0x3EFF) {
-        addr &= 0x0FFF;
-        MIRROR m = cart->mirror;
+    if (addr <= 0x1FFF)
+    {
+        if (cart && cart->ppuWrite(addr, data))
+            return;
 
+        tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF] = data;
+    }
+    else if (addr >= 0x2000 && addr <= 0x3EFF)
+    {
+        uint16_t ntAddr = addr & 0x0FFF;
+        int ntIndex = ntAddr / 0x0400;
+        uint16_t offset = ntAddr & 0x03FF;
+
+        // =========================
+        // MMC5 nametable mapping
+        // =========================
+        if (cart && cart->pMapper)
+        {
+            if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+            {
+                uint8_t source = mmc5->GetNtSource(ntIndex);
+
+                switch (source)
+                {
+                case 0:
+                    tblName[0][offset] = data;
+                    return;
+
+                case 1:
+                    tblName[1][offset] = data;
+                    return;
+
+                case 2:
+                    // ExRAM làm nametable
+                    mmc5->WriteExRam(offset, data);
+                    return;
+
+                case 3:
+                    // Fill mode không ghi trực tiếp vào nametable
+                    return;
+                }
+            }
+        }
+
+        // =========================
+        // Mirroring cũ cho mapper thường
+        // =========================
+        addr = ntAddr;
+        MIRROR m = cart->mirror;
         if (cart->pMapper != nullptr) {
             MIRROR mapper_mirror = cart->pMapper->mirror();
             if (mapper_mirror != MIRROR::HARDWARE) {
                 m = mapper_mirror;
             }
         }
-
         if (m == MIRROR::VERTICAL) {
             if (addr <= 0x03FF) tblName[0][addr & 0x03FF] = data;
             else if (addr <= 0x07FF) tblName[1][addr & 0x03FF] = data;
@@ -274,6 +356,16 @@ void PPU::Step() {
     {
         mapper_a12_low_cycles++;
     }
+    if (cycle == 0)
+    {
+        if (cart && cart->pMapper)
+        {
+            if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+            {
+                mmc5->NotifyScanline(scanline);
+            }
+        }
+    }
     auto lam_IncScrollX = [&]() {
         if (ppu_mask & 0x18) {
             if (vram_addr.coarse_x == 31) { vram_addr.coarse_x = 0; vram_addr.nametable_x = ~vram_addr.nametable_x; }
@@ -307,14 +399,87 @@ void PPU::Step() {
                     bg_next_tile_id = ppuRead(0x2000 | (vram_addr.reg & 0x0FFF));
                     break;
                 case 2:
+                {
                     NotifyMapperA12(0x0000);
-                    bg_next_tile_attrib = ppuRead(0x23C0 | (vram_addr.nametable_y << 11) | (vram_addr.nametable_x << 10) | ((vram_addr.coarse_y >> 2) << 3) | (vram_addr.coarse_x >> 2));
-                    if (vram_addr.coarse_y & 0x02) bg_next_tile_attrib >>= 4;
-                    if (vram_addr.coarse_x & 0x02) bg_next_tile_attrib >>= 2;
-                    bg_next_tile_attrib &= 0x03;
-                    break;
-                case 4: bg_next_tile_lsb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 0); break;
-                case 6: bg_next_tile_msb = ppuRead(((ppu_ctrl & 0x10) ? 0x1000 : 0x0000) + ((uint16_t)bg_next_tile_id << 4) + vram_addr.fine_y + 8); break;
+
+                    bool usedMmc5ExtendedAttr = false;
+
+                    if (cart && cart->pMapper)
+                    {
+                        if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+                        {
+                            if (mmc5->GetExRamMode() == 1)
+                            {
+                                uint16_t exOffset =
+                                    (uint16_t(vram_addr.coarse_y) * 32)
+                                    + vram_addr.coarse_x;
+
+                                uint8_t ex = mmc5->ReadExRam(exOffset);
+
+                                // bit 6-7: palette cho tile hiện tại
+                                bg_next_tile_attrib = (ex >> 6) & 0x03;
+
+                                // bit 0-5: CHR 4KB page cho tile hiện tại
+                                mmc5->SetExtendedChrBank(ex & 0x3F);
+
+                                usedMmc5ExtendedAttr = true;
+                            }
+                        }
+                    }
+
+                    if (!usedMmc5ExtendedAttr)
+                    {
+                        bg_next_tile_attrib = ppuRead(
+                            0x23C0
+                            | (vram_addr.nametable_y << 11)
+                            | (vram_addr.nametable_x << 10)
+                            | ((vram_addr.coarse_y >> 2) << 3)
+                            | (vram_addr.coarse_x >> 2)
+                        );
+
+                        if (vram_addr.coarse_y & 0x02)
+                            bg_next_tile_attrib >>= 4;
+
+                        if (vram_addr.coarse_x & 0x02)
+                            bg_next_tile_attrib >>= 2;
+
+                        bg_next_tile_attrib &= 0x03;
+                    }
+                }
+                break;
+                case 4:
+                {
+                    if (cart && cart->pMapper)
+                    {
+                        if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+                            mmc5->SetChrFetchModeBackground();
+                    }
+
+                    bg_next_tile_lsb = ppuRead(
+                        ((ppu_ctrl & 0x10) ? 0x1000 : 0x0000)
+                        + ((uint16_t)bg_next_tile_id << 4)
+                        + vram_addr.fine_y
+                        + 0
+                    );
+                }
+                break;
+
+                case 6:
+                {
+                    if (cart && cart->pMapper)
+                    {
+                        if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+                            mmc5->SetChrFetchModeBackground();
+                    }
+
+                    bg_next_tile_msb = ppuRead(
+                        ((ppu_ctrl & 0x10) ? 0x1000 : 0x0000)
+                        + ((uint16_t)bg_next_tile_id << 4)
+                        + vram_addr.fine_y
+                        + 8
+                    );
+                }
+                break;
                 case 7: lam_IncScrollX(); break;
                 }
             }
@@ -363,7 +528,11 @@ void PPU::Step() {
                                     pattern_addr = table | ((tile + 1) << 4) | (row - 8);
                                 }
                             }
-
+                            if (cart && cart->pMapper)
+                            {
+                                if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+                                    mmc5->SetChrFetchModeSprite();
+                            }
                             sprite_pattern_lo[sprite_count] = ppuRead(pattern_addr);
                             sprite_pattern_hi[sprite_count] = ppuRead(pattern_addr + 8);
                             sprite_x[sprite_count] = sprite_x_pos;
@@ -378,6 +547,13 @@ void PPU::Step() {
                 // dummy sprite fetch cho các slot còn lại
                 for (int i = sprite_count; i < 8; i++) {
                     uint16_t dummy_addr = ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) | (0xFF << 4);
+
+                    if (cart && cart->pMapper)
+                    {
+                        if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
+                            mmc5->SetChrFetchModeSprite();
+                    }
+
                     ppuRead(dummy_addr);
                     ppuRead(dummy_addr + 8);
                 }
@@ -437,25 +613,26 @@ void PPU::Step() {
         uint8_t final_pixel = 0;
         uint8_t final_palette = 0;
         if (bg_pixel == 0 && fg_pixel == 0) {
-            final_pixel = 0; final_palette = 0; 
+            final_pixel = 0; final_palette = 0;
         }
-        else 
-            if (bg_pixel == 0 && fg_pixel > 0) { 
+        else
+            if (bg_pixel == 0 && fg_pixel > 0) {
                 final_pixel = fg_pixel; final_palette = fg_palette;
             }
-        else 
+            else
                 if (bg_pixel > 0 && fg_pixel == 0) {
                     final_pixel = bg_pixel; final_palette = bg_palette;
                 }
-        else {
-            if (fg_priority) { 
-                final_pixel = fg_pixel;
-                final_palette = fg_palette;
-            }
-            else { 
-                final_pixel = bg_pixel; 
-                final_palette = bg_palette; }
-        }
+                else {
+                    if (fg_priority) {
+                        final_pixel = fg_pixel;
+                        final_palette = fg_palette;
+                    }
+                    else {
+                        final_pixel = bg_pixel;
+                        final_palette = bg_palette;
+                    }
+                }
 
         uint8_t pal_idx = (final_pixel != 0) ? (ppuRead(0x3F00 + (final_palette << 2) + final_pixel) & 0x3F) : (ppuRead(0x3F00) & 0x3F);
 
@@ -504,4 +681,86 @@ void PPU::NotifyMapperA12(uint16_t addr)
     }
 
     mapper_a12 = new_a12;
+}
+uint8_t PPU::GetOAMByte(uint8_t index) const
+{
+    return OAM[index];
+}
+
+uint8_t PPU::GetPPUCtrl() const
+{
+    return ppu_ctrl;
+}
+
+QColor PPU::GetNESColor(uint8_t index) const
+{
+    return palScreen[index & 0x3F];
+}
+uint8_t PPU::DebugPPURead(uint16_t addr)
+{
+    uint8_t data = 0x00;
+    addr &= 0x3FFF;
+
+    // KHÔNG gọi NotifyMapperA12 ở đây
+    // Vì đây chỉ là đọc để debug, không phải PPU thật đang chạy
+
+    if (cart && cart->ppuRead(addr, data))
+    {
+        return data;
+    }
+    else if (addr <= 0x1FFF)
+    {
+        data = tblPattern[(addr & 0x1000) >> 12][addr & 0x0FFF];
+    }
+    else if (addr >= 0x2000 && addr <= 0x3EFF)
+    {
+        uint16_t ntAddr = addr & 0x0FFF;
+
+        MIRROR m = cart->mirror;
+
+        if (cart->pMapper != nullptr)
+        {
+            MIRROR mapper_mirror = cart->pMapper->mirror();
+            if (mapper_mirror != MIRROR::HARDWARE)
+            {
+                m = mapper_mirror;
+            }
+        }
+
+        if (m == MIRROR::VERTICAL)
+        {
+            if (ntAddr <= 0x03FF) data = tblName[0][ntAddr & 0x03FF];
+            else if (ntAddr <= 0x07FF) data = tblName[1][ntAddr & 0x03FF];
+            else if (ntAddr <= 0x0BFF) data = tblName[0][ntAddr & 0x03FF];
+            else data = tblName[1][ntAddr & 0x03FF];
+        }
+        else if (m == MIRROR::HORIZONTAL)
+        {
+            if (ntAddr <= 0x03FF) data = tblName[0][ntAddr & 0x03FF];
+            else if (ntAddr <= 0x07FF) data = tblName[0][ntAddr & 0x03FF];
+            else if (ntAddr <= 0x0BFF) data = tblName[1][ntAddr & 0x03FF];
+            else data = tblName[1][ntAddr & 0x03FF];
+        }
+        else if (m == MIRROR::ONESCREEN_LO)
+        {
+            data = tblName[0][ntAddr & 0x03FF];
+        }
+        else if (m == MIRROR::ONESCREEN_HI)
+        {
+            data = tblName[1][ntAddr & 0x03FF];
+        }
+    }
+    else if (addr >= 0x3F00)
+    {
+        addr &= 0x001F;
+
+        if (addr == 0x0010) addr = 0x0000;
+        if (addr == 0x0014) addr = 0x0004;
+        if (addr == 0x0018) addr = 0x0008;
+        if (addr == 0x001C) addr = 0x000C;
+
+        data = tblPalette[addr] & 0x3F;
+    }
+
+    return data;
 }
