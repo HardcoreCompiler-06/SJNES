@@ -9,6 +9,8 @@
 #include "GpuScreenWidget.h"
 #include "Mapper_024.h"
 #include <QAction>
+#include <QShortcut>
+#include <QKeySequence>
 SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
@@ -182,13 +184,30 @@ SJNES::SJNES(QWidget* parent)
         mapperViewerWindow->activateWindow();
         });
 
+    connect(ui.actSpriteViewer, &QAction::triggered, this, [this]() {
+        if (!spriteViewerWindow)
+        {
+            spriteViewerWindow = new SpriteViewerWindow(&nes_bus, nullptr);
+            spriteViewerWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+            connect(spriteViewerWindow, &QObject::destroyed, this, [this]() {
+                spriteViewerWindow = nullptr;
+                });
+        }
+
+        spriteViewerWindow->show();
+        spriteViewerWindow->raise();
+        spriteViewerWindow->activateWindow();
+        });
+
+    QShortcut* fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
+    connect(fullScreenShortcut, &QShortcut::activated, this, &SJNES::toggleGameFullScreen);
+
 }
 
 SJNES::~SJNES() {}
 
-// =======================================================================
 // QUÁ TRÌNH KHỞI ĐỘNG MÁY NES (RESET SEQUENCE CHUẨN OLC)
-// =======================================================================
 void SJNES::onOpenROMClicked()
 {
     QSettings settings("chienz", "NesEmulator");
@@ -201,7 +220,7 @@ void SJNES::onOpenROMClicked()
         QFileInfo fileInfo(fileName);
         settings.setValue("LastRomPath", fileInfo.absolutePath());
 
-        // 1. Dập cầu dao, dừng hệ thống
+        // 1.dừng hệ thống
         timer->stop();
         system_clock_counter = 0;
         dma_dummy_counter = 0;
@@ -523,6 +542,68 @@ void SJNES::keyPressEvent(QKeyEvent* event) {
     if (isNumpad && event->key() == Qt::Key_5) nes_bus.controller_state2 |= 0x40; // B
     if (isNumpad && event->key() == Qt::Key_7) nes_bus.controller_state2 |= 0x20; // Select
     if (isNumpad && event->key() == Qt::Key_9) nes_bus.controller_state2 |= 0x10; // Start
+}
+
+void SJNES::enterGameFullScreen()
+{
+    gameFullScreen = true;
+
+    menuBar()->hide();
+    statusBar()->hide();
+
+    // Ẩn khung log/text bên trái nếu có
+    if (ui.txtConsole)
+        ui.txtConsole->hide();
+
+    // Ép centralWidget không còn viền trắng/xám
+    if (centralWidget())
+    {
+        centralWidget()->setContentsMargins(0, 0, 0, 0);
+        centralWidget()->setStyleSheet("background-color: black;");
+    }
+
+    // Ép layout không margin/spacing
+    if (centralWidget() && centralWidget()->layout())
+    {
+        centralWidget()->layout()->setContentsMargins(0, 0, 0, 0);
+        centralWidget()->layout()->setSpacing(0);
+    }
+
+    // Ép gameScreen chiếm toàn bộ
+    ui.gameScreen->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    ui.gameScreen->setMinimumSize(0, 0);
+    ui.gameScreen->setFocus();
+
+    showFullScreen();
+}
+
+void SJNES::exitGameFullScreen()
+{
+    gameFullScreen = false;
+
+    showNormal();
+
+    menuBar()->show();
+    statusBar()->show();
+
+    if (ui.txtConsole)
+        ui.txtConsole->show();
+
+    // Nếu muốn trả nền bình thường thì để trắng/xám lại
+    if (centralWidget())
+    {
+        centralWidget()->setStyleSheet("");
+    }
+
+    ui.gameScreen->setFocus();
+}
+
+void SJNES::toggleGameFullScreen()
+{
+    if (gameFullScreen)
+        exitGameFullScreen();
+    else
+        enterGameFullScreen();
 }
 
 void SJNES::keyReleaseEvent(QKeyEvent* event) {

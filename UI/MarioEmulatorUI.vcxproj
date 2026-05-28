@@ -105,16 +105,22 @@
     <ClCompile Include="Mapper_002.cpp" />
     <ClCompile Include="Mapper_003.cpp" />
     <ClCompile Include="Mapper_004.cpp" />
+    <ClCompile Include="Mapper_005.cpp" />
     <ClCompile Include="Mapper_007.cpp" />
     <ClCompile Include="Mapper_009.cpp" />
+    <ClCompile Include="Mapper_018.cpp" />
     <ClCompile Include="Mapper_021.cpp" />
     <ClCompile Include="Mapper_023.cpp" />
     <ClCompile Include="Mapper_024.cpp" />
     <ClCompile Include="Mapper_024.h" />
+    <ClCompile Include="Mapper_066.cpp" />
+    <ClCompile Include="Mapper_071.cpp" />
     <ClCompile Include="Mapper_087.cpp" />
     <ClCompile Include="Mapper_185.cpp" />
     <ClCompile Include="Mapper_221.cpp" />
     <ClCompile Include="PPU.cpp" />
+    <ClCompile Include="SpriteScreenWidget.cpp" />
+    <ClCompile Include="SpriteViewerWindow.cpp" />
     <QtRcc Include="MarioEmulatorUI.qrc" />
     <QtUic Include="SJNES.ui" />
     <QtMoc Include="SJNES.h" />
@@ -140,10 +146,14 @@
     <ClInclude Include="Mapper_002.h" />
     <ClInclude Include="Mapper_003.h" />
     <ClInclude Include="Mapper_004.h" />
+    <ClInclude Include="Mapper_005.h" />
     <ClInclude Include="Mapper_007.h" />
     <ClInclude Include="Mapper_009.h" />
+    <ClInclude Include="Mapper_018.h" />
     <ClInclude Include="Mapper_021.h" />
     <ClInclude Include="Mapper_023.h" />
+    <ClInclude Include="Mapper_066.h" />
+    <ClInclude Include="Mapper_071.h" />
     <ClInclude Include="Mapper_087.h" />
     <ClInclude Include="Mapper_185.h" />
     <ClInclude Include="Mapper_221.h" />
@@ -151,6 +161,8 @@
     <ClInclude Include="PPU.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="resource1.h" />
+    <QtMoc Include="SpriteScreenWidget.h" />
+    <QtMoc Include="SpriteViewerWindow.h" />
     <ClInclude Include="Triangle.h" />
   </ItemGroup>
   <ItemGroup>

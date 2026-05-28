@@ -51,34 +51,31 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
     for (int i = 0; i < CHANNEL_COUNT; i++)
     {
         float v = std::clamp(values[i], -1.0f, 1.0f);
+
+        // Noise: làm nổi rõ hơn
+        if (i == 3)
+        {
+            v *= 1.6f;
+            v = std::clamp(v, -1.0f, 1.0f);
+        }
+
+        // DMC
+        if (i == 4)
+        {
+            v *= 1.6f;
+            v = std::clamp(v, -1.0f, 1.0f);
+        }
+
+        // VRC6 Saw: nâng biên độ
         if (i == 7)
         {
             v *= 2.5f;
             v = std::clamp(v, -1.0f, 1.0f);
         }
 
-        // Noise và DMC: làm mượt hiển thị để không rụp về đường thẳng quá gắt
-        if (i == 3 || i == 4)
-        {
-            float target = v;
-
-            if (std::abs(target) < 0.015f)
-            {
-                // Khi hết âm, cho sóng tắt dần thay vì rơi về 0 ngay
-                v = lastVisual[i] * 0.9995f;
-            }
-            else
-            {
-                // Khi có âm, bám theo tín hiệu nhưng vẫn mượt
-                v = lastVisual[i] * 0.90f + target * 0.10f;
-            }
-
-            lastVisual[i] = v;
-        }
-
         buffers[i].push_back(v);
 
-        if (buffers[i].size() > MAX_SAMPLES)
+        if (buffers[i].size() > MAX_SAMPLES + 512)
         {
             buffers[i].remove(0, buffers[i].size() - MAX_SAMPLES);
         }
@@ -142,7 +139,15 @@ void AudioWaveWindow::paintEvent(QPaintEvent* event)
         if (copy[c].size() < 2)
             continue;
 
-        p.setPen(QPen(QColor(0, 220, 120), 1));
+        if (c == 3 || c == 4)
+        {
+            // Noise và DMC vẽ dày hơn
+            p.setPen(QPen(QColor(0, 220, 120), 2));
+        }
+        else
+        {
+            p.setPen(QPen(QColor(0, 220, 120), 1));
+        }
 
         const int n = copy[c].size();
 
@@ -190,8 +195,15 @@ void AudioWaveWindow::paintEvent(QPaintEvent* event)
             float x1 = float(i - 1) / float(DISPLAY_SAMPLES - 1) * w;
             float x2 = float(i) / float(DISPLAY_SAMPLES - 1) * w;
 
-            float y1 = midY - copy[c][idx1] * (panelH * 0.35f);
-            float y2 = midY - copy[c][idx2] * (panelH * 0.35f);
+            float amp = panelH * 0.35f;
+
+            if (c == 3 || c == 4)
+            {
+                amp = panelH * 0.38f;
+            }
+
+            float y1 = midY - copy[c][idx1] * amp;
+            float y2 = midY - copy[c][idx2] * amp;
 
             p.drawLine(QPointF(x1, y1), QPointF(x2, y2));
         }

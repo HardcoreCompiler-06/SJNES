@@ -3,7 +3,6 @@
 #include <vector>
 #include <string>
 #include <memory>
-
 // Kéo Mapper vào để hiểu MIRROR là gì
 #include "Mapper.h"
 
@@ -13,7 +12,6 @@ public:
     ~Cartridge();
 
     bool ImageValid();
-
     bool ppuRead(uint16_t addr, uint8_t& data);
     bool ppuWrite(uint16_t addr, uint8_t data);
     bool cpuRead(uint16_t addr, uint8_t& data);
@@ -23,7 +21,7 @@ public:
     MIRROR mirror = MIRROR::HORIZONTAL;
 
     // Cục RAM 8KB cho Mapper của anh
-    uint8_t PRGRAM[8192] = { 0 };
+    std::vector<uint8_t> PRGRAM;
 
     std::vector<uint8_t> vPRGMemory;
     std::vector<uint8_t> vCHRMemory;

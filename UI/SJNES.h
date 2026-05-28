@@ -12,6 +12,7 @@
 #include "PPU.h"
 #include "Bus.h"
 #include "Cartridge.h"
+#include "SpriteViewerWindow.h"
 
 class SJNES : public QMainWindow
 {
@@ -55,4 +56,9 @@ private:
     bool pixelPerfectMode = false;
     AudioWaveWindow* audioWaveWindow = nullptr;
     MapperViewerWindow* mapperViewerWindow = nullptr;
+    SpriteViewerWindow* spriteViewerWindow = nullptr;
+    bool gameFullScreen = false;
+    void enterGameFullScreen();
+    void exitGameFullScreen();
+    void toggleGameFullScreen();
 };
