@@ -1,4 +1,5 @@
 #include "SJNES.h"
+#include <cstdint>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <algorithm>
@@ -6,15 +7,19 @@
 #include <QSettings>
 #include <QFileInfo>
 #include "LogBuffer.h"
+#include <QActionGroup>
 #include "GpuScreenWidget.h"
 #include "Mapper_024.h"
 #include <QAction>
 #include <QShortcut>
 #include <QKeySequence>
+#include <QMediaDevices>
+#include <QAudioDevice>
 SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+    fpsTimer.start();
     ui.txtConsole->setReadOnly(true);
     ui.txtConsole->setFocusPolicy(Qt::NoFocus);
     nes_cpu.ConnectBus(&nes_bus);
@@ -23,13 +28,12 @@ SJNES::SJNES(QWidget* parent)
     timer = new QTimer(this);
     timer->setTimerType(Qt::PreciseTimer);
     connect(timer, &QTimer::timeout, this, &SJNES::runFrame);
-    QAudioFormat format;
-    format.setSampleRate(44100);
-    format.setChannelCount(2);
-    format.setSampleFormat(QAudioFormat::Float);
-    audio_sink = new QAudioSink(format, this);
-    audio_sink->setBufferSize(32768);
-    audio_device = audio_sink->start();
+    restartAudioSink();
+
+    connect(&audioDevices, &QMediaDevices::audioOutputsChanged,
+        this, [this]() {
+            restartAudioSink();
+        });
 // MENU: FILE
     connect(ui.actOpenROM, &QAction::triggered,
         this, &SJNES::onOpenROMClicked);
@@ -184,6 +188,7 @@ SJNES::SJNES(QWidget* parent)
         mapperViewerWindow->activateWindow();
         });
 
+
     connect(ui.actSpriteViewer, &QAction::triggered, this, [this]() {
         if (!spriteViewerWindow)
         {
@@ -199,10 +204,127 @@ SJNES::SJNES(QWidget* parent)
         spriteViewerWindow->raise();
         spriteViewerWindow->activateWindow();
         });
+    ui.action60fps->setCheckable(true);
+    ui.action60fps->setChecked(false); // mặc định 30fps
+
+    connect(ui.action60fps, &QAction::toggled, this, [this](bool checked) {
+        video60fps = checked;
+        });
+
+    QActionGroup* overclockGroup = new QActionGroup(this);
+
+    overclockGroup->addAction(ui.actionOverclockOff);
+    overclockGroup->addAction(ui.actionOverclock50);
+    overclockGroup->addAction(ui.actionOverclock100);
+    overclockGroup->addAction(ui.actionOverclock200);
+    overclockGroup->addAction(ui.actionOverclock250);
+    overclockGroup->setExclusive(true);
+    ui.actionOverclockOff->setCheckable(true);
+    ui.actionOverclock50->setCheckable(true);
+    ui.actionOverclock100->setCheckable(true);
+    ui.actionOverclock200->setCheckable(true);
+    ui.actionOverclockOff->setChecked(true);
+    ui.actOpenROM->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actReset->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actPause->setShortcutContext(Qt::ApplicationShortcut);
+
+    ui.actMono->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actStereo->setShortcutContext(Qt::ApplicationShortcut);
+
+    ui.actPulse1->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actPulse2->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actTriangle->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actNoise->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actDMC->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actVRC6->setShortcutContext(Qt::ApplicationShortcut);
+
+    ui.actScanline->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actCrtLite->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actPixelPerfect->setShortcutContext(Qt::ApplicationShortcut);
+
+    ui.actAudioWaveform->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actMapperViewer->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actSpriteViewer->setShortcutContext(Qt::ApplicationShortcut);
+
+    ui.action60fps->setShortcutContext(Qt::ApplicationShortcut);
+    connect(ui.actionOverclockOff, &QAction::triggered, this, [this]() {
+        nes_ppu.SetExtraScanlinesBeforeNMI(0);
+        ui.txtConsole->appendPlainText("Overclock: OFF");
+        });
+
+    connect(ui.actionOverclock50, &QAction::triggered, this, [this]() {
+        nes_ppu.SetExtraScanlinesBeforeNMI(50);
+        ui.txtConsole->appendPlainText("ép xung cpu thêm 50");
+        });
+
+    connect(ui.actionOverclock100, &QAction::triggered, this, [this]() {
+        nes_ppu.SetExtraScanlinesBeforeNMI(100);
+        ui.txtConsole->appendPlainText("ép xung cpu thêm 100");
+        });
+    
+    connect(ui.actionOverclock200, &QAction::triggered, this, [this]() {
+        nes_ppu.SetExtraScanlinesBeforeNMI(200);
+        ui.txtConsole->appendPlainText("ép xung cpu lên 200");
+        });
+
+    connect(ui.actionOverclock250, &QAction::triggered, this, [this]() {
+        nes_ppu.SetExtraScanlinesBeforeNMI(250);
+        ui.txtConsole->appendPlainText("ép xung cpu lên 250");
+        });
+
+    ui.actRemoveSpriteLimit->setCheckable(true);
+    ui.actRemoveSpriteLimit->setChecked(false);
+
+    connect(ui.actRemoveSpriteLimit, &QAction::toggled, this, [this](bool checked)
+        {
+            nes_ppu.SetRemoveSpriteLimit(checked);
+
+            ui.txtConsole->appendPlainText(
+                checked ? "Remove 8 Sprite Limit: ON" : "Remove 8 Sprite Limit: OFF"
+            );
+        });
+
+    setFocusPolicy(Qt::StrongFocus);
+    ui.gameScreen->setFocusPolicy(Qt::NoFocus);
 
     QShortcut* fullScreenShortcut = new QShortcut(QKeySequence(Qt::Key_F11), this);
+    fullScreenShortcut->setContext(Qt::ApplicationShortcut);
     connect(fullScreenShortcut, &QShortcut::activated, this, &SJNES::toggleGameFullScreen);
 
+    auto addAppShortcut = [this](const QKeySequence& key, QAction* action)
+        {
+            QShortcut* sc = new QShortcut(key, this);
+            sc->setContext(Qt::ApplicationShortcut);
+
+            connect(sc, &QShortcut::activated, this, [action]() {
+                if (action)
+                    action->trigger();
+                });
+        };
+    // Audio mode
+    addAppShortcut(QKeySequence("Ctrl+M"), ui.actMono);
+    addAppShortcut(QKeySequence("Ctrl+Shift+M"), ui.actStereo);
+    // Audio channels
+    addAppShortcut(QKeySequence("Ctrl+1"), ui.actPulse1);
+    addAppShortcut(QKeySequence("Ctrl+2"), ui.actPulse2);
+    addAppShortcut(QKeySequence("Ctrl+3"), ui.actTriangle);
+    addAppShortcut(QKeySequence("Ctrl+4"), ui.actNoise);
+    addAppShortcut(QKeySequence("Ctrl+5"), ui.actDMC);
+    addAppShortcut(QKeySequence("Ctrl+6"), ui.actVRC6);
+    // Debug / filter nếu muốn
+    addAppShortcut(QKeySequence("Ctrl+W"), ui.actAudioWaveform);
+    // File / control nếu muốn
+    addAppShortcut(QKeySequence("Ctrl+O"), ui.actOpenROM);
+    addAppShortcut(QKeySequence("Ctrl+R"), ui.actReset);
+    addAppShortcut(QKeySequence("Space"), ui.actPause);
+    // FPS
+    addAppShortcut(QKeySequence("Ctrl+F"), ui.action60fps);
+    //ép xung máy
+    addAppShortcut(QKeySequence("Ctrl+7"), ui.actionOverclockOff);
+    addAppShortcut(QKeySequence("Ctrl+8"), ui.actionOverclock50);
+    addAppShortcut(QKeySequence("Ctrl+9"), ui.actionOverclock100);
+    addAppShortcut(QKeySequence("Ctrl+0"), ui.actionOverclock200);
+    addAppShortcut(QKeySequence("Ctrl+-"), ui.actionOverclock250);
 }
 
 SJNES::~SJNES() {}
@@ -241,6 +363,7 @@ void SJNES::onOpenROMClicked()
         // 4. RESET TOÀN BỘ HỆ THỐNG
         // Thứ tự cực kỳ quan trọng: PPU -> Mapper -> CPU
         nes_ppu.reset();
+        nes_bus.n_apu.reset();
         if (cart->pMapper != nullptr) cart->pMapper->reset();
         nes_cpu.reset();
         uint8_t irqLo = nes_bus.cpuRead(0xFFFE);
@@ -253,8 +376,7 @@ void SJNES::onOpenROMClicked()
         ui.txtConsole->appendPlainText(">>> DA NAP ROM VA RESET HE THONG: " + fileName);
         ui.txtConsole->appendPlainText(QString("MAPPER ID: %1").arg(cart->nMapperID));
         ui.txtConsole->appendPlainText(QString("START -> PC: 0x%1").arg(nes_cpu.pc, 4, 16, QChar('0')).toUpper());
-
-        // 6. Bật điện!
+        //on
         timer->start(16);
         ui.actPause->setText("Dừng (Pause)");
     }
@@ -287,7 +409,7 @@ void SJNES::onResetClicked()
 
     // Reset PPU -> Mapper -> CPU
     nes_ppu.reset();
-
+    nes_bus.n_apu.reset();
     if (nes_bus.cart->pMapper != nullptr) {
         nes_bus.cart->pMapper->reset();
     }
@@ -335,9 +457,13 @@ void SJNES::runFrame() {
             if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr) {
                 nes_bus.cart->pMapper->irqStep();
 
-                if (nes_bus.cart->pMapper->irqState()) {
-                    nes_bus.cart->pMapper->irqClear();
-                    nes_cpu.irq();
+                if (nes_bus.cart->pMapper->irqState())
+                {
+                    nes_cpu.SetIrqSource(CPU6502::IRQ_EXTERNAL);
+                }
+                else
+                {
+                    nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
                 }
             }
 
@@ -429,6 +555,41 @@ void SJNES::runFrame() {
         system_clock_counter++;
     } 
 
+    int extraScanlines = nes_ppu.GetExtraScanlinesBeforeNMI();
+    int extraCpuCycles = (extraScanlines * 341) / 3;
+
+    for (int i = 0; i < extraCpuCycles; i++)
+    {
+        if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr)
+        {
+            nes_bus.cart->pMapper->irqStep(); {
+                if (nes_bus.cart->pMapper->irqState())
+                {
+                    nes_cpu.SetIrqSource(CPU6502::IRQ_EXTERNAL);
+                }
+                else
+                {
+                    nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
+                }
+            }
+        }
+        if (nes_bus.dma_transfer)
+        {
+            if (dma_dummy_counter < 512)
+            {
+                dma_dummy_counter++;
+            }
+            else
+            {
+                nes_bus.dma_transfer = false;
+                dma_dummy_counter = 0;
+            }
+        }
+        else
+        {
+            nes_cpu.clock();
+        }
+    }
 
     if (audio_device != nullptr && !audio_buffer.isEmpty()) {
         audio_device->write(audio_buffer.data(), audio_buffer.size());
@@ -437,28 +598,53 @@ void SJNES::runFrame() {
     }
 
     QImage frameImage = nes_bus.ppu->GetScreen();
-    ui.gameScreen->setFrame(frameImage);
-    gLogBuffer.clear();
 
+    // GAME FPS: frame hình có thay đổi thật hay không
+    if (lastGameFrame.isNull() || frameImage != lastGameFrame)
+    {
+        gameFpsCounter++;
+        lastGameFrame = frameImage.copy();
+    }
+
+    // VIDEO FPS: số frame thực sự đưa ra màn hình
+    bool shouldOutputVideoFrame = video60fps || (videoFrameCounter % 2 == 0);
+
+    if (shouldOutputVideoFrame)
+    {
+        videoFpsCounter++;
+        ui.gameScreen->setFrame(frameImage);
+    }
+
+    // Cập nhật FPS mỗi 1 giây
+    const int FPS_UPDATE_MS = 250; // 250ms = cập nhật nhanh hơn
+
+    if (fpsTimer.elapsed() >= FPS_UPDATE_MS)
+    {
+        double elapsedSec = fpsTimer.elapsed() / 1000.0;
+
+        videoFpsValue = videoFpsCounter / elapsedSec;
+        gameFpsValue = gameFpsCounter / elapsedSec;
+
+        videoFpsCounter = 0;
+        gameFpsCounter = 0;
+        fpsTimer.restart();
+
+        ui.gameScreen->setOverlayText(
+            QString("VIDEO %1 FPS\nGAME %2 FPS")
+            .arg(videoFpsValue, 0, 'f', 1)
+            .arg(gameFpsValue, 0, 'f', 1)
+        );
+    }
+    videoFrameCounter++;
+    gLogBuffer.clear();
 } 
-void SJNES::onStereoToggled(bool checked) {
+void SJNES::onStereoToggled(bool checked)
+{
     is_stereo = checked;
     ui.actStereo->setChecked(checked);
     ui.actMono->setChecked(!checked);
 
-    // Restart audio sink với đúng channel count
-    if (audio_sink) {
-        audio_sink->stop();
-        delete audio_sink;
-        audio_sink = nullptr;
-    }
-    QAudioFormat format;
-    format.setSampleRate(44100);
-    format.setChannelCount(is_stereo ? 2 : 1);
-    format.setSampleFormat(QAudioFormat::Float);
-    audio_sink = new QAudioSink(format, this);
-    audio_sink->setBufferSize(32768);
-    audio_device = audio_sink->start();
+    restartAudioSink();
 }
 void SJNES::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
@@ -572,9 +758,11 @@ void SJNES::enterGameFullScreen()
     // Ép gameScreen chiếm toàn bộ
     ui.gameScreen->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     ui.gameScreen->setMinimumSize(0, 0);
-    ui.gameScreen->setFocus();
-
     showFullScreen();
+
+    activateWindow();
+    raise();
+    setFocus();
 }
 
 void SJNES::exitGameFullScreen()
@@ -595,7 +783,9 @@ void SJNES::exitGameFullScreen()
         centralWidget()->setStyleSheet("");
     }
 
-    ui.gameScreen->setFocus();
+    activateWindow();
+    raise();
+    setFocus();
 }
 
 void SJNES::toggleGameFullScreen()
@@ -604,6 +794,32 @@ void SJNES::toggleGameFullScreen()
         exitGameFullScreen();
     else
         enterGameFullScreen();
+}
+
+void SJNES::restartAudioSink()
+{
+    if (audio_sink)
+    {
+        audio_sink->stop();
+        delete audio_sink;
+        audio_sink = nullptr;
+        audio_device = nullptr;
+    }
+
+    QAudioFormat format;
+    format.setSampleRate(44100);
+    format.setChannelCount(is_stereo ? 2 : 1);
+    format.setSampleFormat(QAudioFormat::Float);
+
+    QAudioDevice outputDevice = QMediaDevices::defaultAudioOutput();
+
+    audio_sink = new QAudioSink(outputDevice, format, this);
+    audio_sink->setBufferSize(32768);
+    audio_device = audio_sink->start();
+
+    ui.txtConsole->appendPlainText(
+        "Audio output: " + outputDevice.description()
+    );
 }
 
 void SJNES::keyReleaseEvent(QKeyEvent* event) {

@@ -13,7 +13,9 @@
 #include "Bus.h"
 #include "Cartridge.h"
 #include "SpriteViewerWindow.h"
-
+#include <QElapsedTimer>
+#include <QImage>
+#include <QMediaDevices>
 class SJNES : public QMainWindow
 {
     Q_OBJECT
@@ -33,6 +35,12 @@ private slots:
     void runFrame();
 
 private:
+    QElapsedTimer fpsTimer;
+    int videoFpsCounter = 0;
+    int gameFpsCounter = 0;
+    double videoFpsValue = 0.0;
+    double gameFpsValue = 0.0;
+    QImage lastGameFrame;
     bool pendingIRQClear = false;
     Ui::SJNESClass ui;
     void onResetClicked();
@@ -61,4 +69,8 @@ private:
     void enterGameFullScreen();
     void exitGameFullScreen();
     void toggleGameFullScreen();
+    bool video60fps = false;
+    uint64_t videoFrameCounter = 0;
+    void restartAudioSink();
+    QMediaDevices audioDevices;
 };

@@ -46,25 +46,34 @@ struct F1 {
     }
 
     // Gọi ở half-frame
-    void TickLengthAndSweep() {
-        // Length counter
-        if (!env.loop && length_counter > 0) length_counter--;
+    void TickLengthAndSweep()
+    {
+        if (!env.loop && length_counter > 0)
+            length_counter--;
 
-        // Sweep — Pulse 1 dùng one's complement negate
-        if (sweep.reload) {
-            sweep.timer  = sweep.period;
-            sweep.reload = false;
-        } else if (sweep.timer > 0) {
+        if (sweep.timer > 0)
             sweep.timer--;
-        } else {
-            sweep.timer = sweep.period;
-            if (sweep.enabled && sweep.shift > 0 && length_counter > 0) {
+
+        if (sweep.timer == 0)
+        {
+            if (sweep.enabled && sweep.shift > 0 && length_counter > 0 && !IsMuted())
+            {
                 int change = timer_reload >> sweep.shift;
-                int target = sweep.negate ? (timer_reload - change - 1)
-                                          : (timer_reload + change);
-                if (target >= 8 && target <= 0x7FF)
+                int target = sweep.negate
+                    ? (timer_reload - change - 1)   // Pulse 1
+                    : (timer_reload + change);
+
+                if (target >= 0 && target <= 0x7FF)
                     timer_reload = (uint16_t)target;
             }
+
+            sweep.timer = sweep.period;
+        }
+
+        if (sweep.reload)
+        {
+            sweep.timer = sweep.period;
+            sweep.reload = false;
         }
     }
 
@@ -95,7 +104,7 @@ struct F1 {
             break;
         case 1:
             sweep.enabled = (data & 0x80) != 0;
-            sweep.period  = (data >> 4) & 0x07;
+            sweep.period = ((data >> 4) & 0x07) + 1;
             sweep.negate  = (data & 0x08) != 0;
             sweep.shift   = data & 0x07;
             sweep.reload  = true;

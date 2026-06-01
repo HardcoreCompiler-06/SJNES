@@ -19,7 +19,7 @@ public:
     void irqClear() override;
     QString GetDebugInfo() override;
     float GetExpansionAudio() override;
-
+    uint8_t GetNtSource(int index) const;
 private:
     // VRC6 PRG
     uint8_t prg16Bank = 0; // $8000-$BFFF, 16KB

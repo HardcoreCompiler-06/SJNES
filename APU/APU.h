@@ -23,7 +23,7 @@ class APU {
 public:
     APU();
     ~APU() = default;
-
+    void reset();
     Bus* bus = nullptr;
 
     double             sample_counter = 0.0;

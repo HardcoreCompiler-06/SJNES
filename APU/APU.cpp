@@ -154,3 +154,36 @@ AudioDebugChannels APU::GetDebugChannels()
 
     return ch;
 }
+
+void APU::reset()
+{
+    // Tắt toàn bộ kênh qua $4015
+    cpuWrite(0x4015, 0x00);
+
+    // Reset frame sequencer
+    frame_seq_count = 0;
+    use_5step_mode = false;
+    apu_half_clock = false;
+
+    // Reset noise cơ bản
+    noise.shift_register = 1;
+
+    // Reset filter để hết tiếng ù/ì còn sót lại
+    hp1 = 0.0f;
+    hp2 = 0.0f;
+    lp = 0.0f;
+    prev_in1 = 0.0f;
+    prev_in2 = 0.0f;
+
+    hp1L = 0.0f;
+    hp2L = 0.0f;
+    lpL = 0.0f;
+    prev_in1L = 0.0f;
+    prev_in2L = 0.0f;
+
+    hp1R = 0.0f;
+    hp2R = 0.0f;
+    lpR = 0.0f;
+    prev_in1R = 0.0f;
+    prev_in2R = 0.0f;
+}

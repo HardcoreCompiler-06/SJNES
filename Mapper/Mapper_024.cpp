@@ -727,3 +727,7 @@ QString Mapper_024::GetDebugInfo()
 
     return s;
 }
+uint8_t Mapper_024::GetNtSource(int index) const
+{
+    return ntSource[index & 0x03] & 0x01;
+}

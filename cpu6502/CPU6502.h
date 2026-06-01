@@ -100,7 +100,14 @@ private:
     uint8_t SEC(); uint8_t SED(); uint8_t SEI(); uint8_t STA();
     uint8_t STX(); uint8_t STY(); uint8_t TAX(); uint8_t TAY();
     uint8_t TSX(); uint8_t TXA(); uint8_t TXS(); uint8_t TYA();
-    uint8_t XXX();
+    uint8_t XXX(); uint8_t LAX();
+    uint8_t SAX();
+    uint8_t DCP();
+    uint8_t ISC();
+    uint8_t SLO();
+    uint8_t RLA();
+    uint8_t SRE();
+    uint8_t RRA();
 };
 
 std::string hex(uint32_t n, uint8_t d);

@@ -13,12 +13,13 @@ class AudioWaveWindow : public QWidget
 
 public:
     explicit AudioWaveWindow(QWidget* parent = nullptr);
-
+    void setOverlayText(const QString& text);
     void pushChannels(const AudioDebugChannels& ch);
     void clearSamples();
     void paintEvent(QPaintEvent* event) override;
 
 private:
+    QString overlayText;
     static constexpr int MAX_SAMPLES = 16384;
     static constexpr int DISPLAY_SAMPLES = 1024;
     static constexpr int CHANNEL_COUNT = 8;
