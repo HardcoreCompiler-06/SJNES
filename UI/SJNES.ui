@@ -112,12 +112,18 @@
     <addaction name="actionOverclock250"/>
     <addaction name="actRemoveSpriteLimit"/>
    </widget>
+   <widget class="QMenu" name="menuRecentROMs_2">
+    <property name="title">
+     <string>RecentROMs</string>
+    </property>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuAUDIO"/>
    <addaction name="menuFilter"/>
    <addaction name="menuDebug"/>
    <addaction name="menuFPS"/>
    <addaction name="menuoverclock"/>
+   <addaction name="menuRecentROMs_2"/>
   </widget>
   <action name="actOpenROM">
    <property name="text">
@@ -281,6 +287,11 @@
    </property>
    <property name="text">
     <string>remove 8 sprite limit</string>
+   </property>
+  </action>
+  <action name="menuRecentROMs">
+   <property name="text">
+    <string>Recent ROMs</string>
    </property>
   </action>
  </widget>

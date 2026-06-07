@@ -742,7 +742,7 @@ void PPU::NotifyMapperA12(uint16_t addr)
 
     if (!mapper_a12 && new_a12)
     {
-        if (mapper_a12_low_cycles >= 8)
+        if (mapper_a12_low_cycles >= 3)
         {
             if (cart && cart->pMapper)
             {
@@ -852,4 +852,113 @@ void PPU::SetExtraScanlinesBeforeNMI(int value)
 int PPU::GetExtraScanlinesBeforeNMI() const
 {
     return extraScanlinesBeforeNMI;
+}
+void PPU::SaveState(QDataStream& out) const
+{
+    out << nmi_requested;
+    out << oam_addr;
+
+    for (int i = 0; i < 256; i++)
+        out << OAM[i];
+
+    out << mapper_a12;
+    out << mapper_a12_low_cycles;
+
+    for (int t = 0; t < 2; t++)
+        for (int i = 0; i < 1024; i++)
+            out << tblName[t][i];
+
+    for (int i = 0; i < 32; i++)
+        out << tblPalette[i];
+
+    out << ppu_ctrl;
+    out << ppu_mask;
+    out << status;
+    out << ppu_data_buffer;
+    out << address_latch;
+
+    out << vram_addr.reg;
+    out << tram_addr.reg;
+    out << fine_x;
+
+    out << scanline;
+    out << cycle;
+
+    out << bg_next_tile_id;
+    out << bg_next_tile_attrib;
+    out << bg_next_tile_lsb;
+    out << bg_next_tile_msb;
+
+    out << bg_shifter_pattern_lo;
+    out << bg_shifter_pattern_hi;
+    out << bg_shifter_attrib_lo;
+    out << bg_shifter_attrib_hi;
+
+    out << extraScanlinesBeforeNMI;
+    out << bRemoveSpriteLimit;
+    out << sprite_count;
+
+    for (int i = 0; i < 64; i++)
+    {
+        out << sprite_pattern_lo[i];
+        out << sprite_pattern_hi[i];
+        out << sprite_x[i];
+        out << sprite_attribute[i];
+        out << sprite_zero_being_rendered[i];
+    }
+}
+
+void PPU::LoadState(QDataStream& in)
+{
+    in >> nmi_requested;
+    in >> oam_addr;
+
+    for (int i = 0; i < 256; i++)
+        in >> OAM[i];
+
+    in >> mapper_a12;
+    in >> mapper_a12_low_cycles;
+
+    for (int t = 0; t < 2; t++)
+        for (int i = 0; i < 1024; i++)
+            in >> tblName[t][i];
+
+    for (int i = 0; i < 32; i++)
+        in >> tblPalette[i];
+
+    in >> ppu_ctrl;
+    in >> ppu_mask;
+    in >> status;
+    in >> ppu_data_buffer;
+    in >> address_latch;
+
+    in >> vram_addr.reg;
+    in >> tram_addr.reg;
+    in >> fine_x;
+
+    in >> scanline;
+    in >> cycle;
+
+    in >> bg_next_tile_id;
+    in >> bg_next_tile_attrib;
+    in >> bg_next_tile_lsb;
+    in >> bg_next_tile_msb;
+
+    in >> bg_shifter_pattern_lo;
+    in >> bg_shifter_pattern_hi;
+    in >> bg_shifter_attrib_lo;
+    in >> bg_shifter_attrib_hi;
+
+    in >> extraScanlinesBeforeNMI;
+    in >> bRemoveSpriteLimit;
+    in >> sprite_count;
+
+    for (int i = 0; i < 64; i++)
+    {
+        in >> sprite_pattern_lo[i];
+        in >> sprite_pattern_hi[i];
+        in >> sprite_x[i];
+        in >> sprite_attribute[i];
+        in >> sprite_zero_being_rendered[i];
+    }
 }

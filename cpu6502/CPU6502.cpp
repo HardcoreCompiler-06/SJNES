@@ -242,7 +242,6 @@ uint8_t CPU6502::IND() {
     pc++;
     uint16_t ptr = (ptr_hi << 8) | ptr_lo;
 
-    // Giả lập lỗi phần cứng "huyền thoại" của chip 6502
     if (ptr_lo == 0x00FF)
         addr_abs = (read(ptr & 0xFF00) << 8) | read(ptr);
     else
@@ -537,4 +536,38 @@ bool CPU6502::complete() {
   return mapLines;
  }
                                                    
-                                                   
+ void CPU6502::SaveState(QDataStream& out) const
+ {
+     out << a;
+     out << x;
+     out << y;
+     out << stkp;
+     out << pc;
+     out << status;
+
+     out << fetched;
+     out << addr_abs;
+     out << addr_rel;
+     out << opcode;
+     out << cycles;
+
+     out << irq_sources;
+ }
+
+ void CPU6502::LoadState(QDataStream& in)
+ {
+     in >> a;
+     in >> x;
+     in >> y;
+     in >> stkp;
+     in >> pc;
+     in >> status;
+
+     in >> fetched;
+     in >> addr_abs;
+     in >> addr_rel;
+     in >> opcode;
+     in >> cycles;
+
+     in >> irq_sources;
+ }

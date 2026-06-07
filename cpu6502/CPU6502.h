@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 #include <map>
-
+#include<qdatastream>
 class Bus;
 
 class CPU6502
@@ -46,7 +46,8 @@ public:
     uint8_t fetch();
     std::map<uint16_t, std::string> disassemble(uint16_t nStart, uint16_t nStop);
     bool complete();
-
+    void SaveState(QDataStream& out) const;
+    void LoadState(QDataStream& in);
 public:
     uint16_t  cycles = 0;
     enum FLAGS6502

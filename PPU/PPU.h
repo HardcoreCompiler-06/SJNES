@@ -4,7 +4,7 @@
 #include <QImage>
 #include <QColor>
 #include "Cartridge.h"
-
+#include <QDataStream>
 class PPU {
 public:
     PPU();
@@ -40,7 +40,8 @@ public:
     bool nmi_requested = false;
     uint8_t oam_addr = 0x00; 
     uint8_t OAM[256];
-
+    void SaveState(QDataStream& out) const;
+    void LoadState(QDataStream& in);
 private:
     bool bRemoveSpriteLimit = false;
     int sprite_count = 0;
