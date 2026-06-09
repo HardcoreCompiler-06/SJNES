@@ -17,6 +17,7 @@
 #include <QMediaDevices>
 #include <QList>
 #include <QAction>
+#include <QCloseEvent>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 class SJNES : public QMainWindow
@@ -28,6 +29,7 @@ public:
     ~SJNES();
 
 protected:
+    void closeEvent(QCloseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;

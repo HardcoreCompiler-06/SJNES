@@ -1,6 +1,8 @@
 #include "Cartridge.h"
 #include <fstream>
 #include <iostream>
+#include <cstring>
+#include <iterator>
 #include "Mapper_000.h"
 #include "Mapper_002.h"
 #include "Mapper_003.h"
@@ -19,8 +21,48 @@
 #include "Mapper_071.h"
 #include "Mapper_221.h"
 
-Cartridge::Cartridge(const std::string& sFileName) {
-    // 1. Cấu trúc chuẩn của 16 bytes Header băng NES (iNES Format)
+Cartridge::Cartridge(const std::string& sFileName)
+{
+    LoadFromFile(sFileName);
+}
+
+Cartridge::Cartridge(const std::vector<uint8_t>& romData)
+{
+    LoadFromData(romData);
+}
+
+bool Cartridge::LoadFromFile(const std::string& sFileName)
+{
+    std::ifstream ifs(sFileName, std::ios::binary);
+
+    if (!ifs.is_open())
+    {
+        bImageValid = false;
+        return false;
+    }
+
+    std::vector<uint8_t> romData(
+        (std::istreambuf_iterator<char>(ifs)),
+        std::istreambuf_iterator<char>()
+    );
+
+    ifs.close();
+
+    return LoadFromData(romData);
+}
+
+bool Cartridge::LoadFromData(const std::vector<uint8_t>& romData)
+{
+    bImageValid = false;
+
+    vPRGMemory.clear();
+    vCHRMemory.clear();
+    PRGRAM.clear();
+    pMapper.reset();
+
+    if (romData.size() < 16)
+        return false;
+
     struct sHeader {
         char name[4];
         uint8_t prg_rom_chunks;
@@ -33,78 +75,89 @@ Cartridge::Cartridge(const std::string& sFileName) {
         char unused[5];
     } header;
 
-    // 2. Mở file ROM dạng Nhị phân (Binary)
-    std::ifstream ifs;
-    ifs.open(sFileName, std::ifstream::binary);
-    if (ifs.is_open()) {
+    std::memcpy(&header, romData.data(), sizeof(sHeader));
 
-        // Đọc 16 bytes đầu tiên vào cái khuôn Header
-        ifs.read((char*)&header, sizeof(sHeader));
-
-        // 3. Giải mã ID của con chip Mapper (Ghép từ byte thứ 6 và thứ 7)
-        nMapperID = ((header.mapper2 >> 4) << 4) | (header.mapper1 >> 4);
-
-        if (header.mapper1 & 0x01) {
-            mirror = VERTICAL;
-        }
-        else {
-            mirror = HORIZONTAL;
-        }
-
-        if (header.mapper1 & 0x04) {
-            ifs.seekg(512, std::ios_base::cur);
-        }
-
-        // 4. Lấy số lượng cuộn (Banks)
-        nPRGBanks = header.prg_rom_chunks;
-        nCHRBanks = header.chr_rom_chunks;
-        std::cout << "Mapper ID: " << (int)nMapperID << std::endl;
-        std::cout << "PRG Banks: " << (int)nPRGBanks << std::endl;
-        std::cout << "CHR Banks: " << (int)nCHRBanks << std::endl;
-        // 5. CẮT BĂNG: NẠP CODE GAME (PRG)
-        // 1 cuộn PRG chuẩn nặng 16KB (16384 bytes)
-        vPRGMemory.resize(nPRGBanks * 16384);
-        ifs.read((char*)vPRGMemory.data(), vPRGMemory.size());
-
-        // 6. CẮT BĂNG: NẠP HÌNH ẢNH ĐỒ HỌA (CHR)
-        // 1 cuộn CHR chuẩn nặng 8KB (8192 bytes)
-        if (nCHRBanks == 0) {
-            // Có những game không có ROM hình sẵn, nó dùng CHR RAM
-            vCHRMemory.resize(8192);
-        }
-        else {
-            vCHRMemory.resize(nCHRBanks * 8192);
-            ifs.read((char*)vCHRMemory.data(), vCHRMemory.size());
-        }
-        ifs.close();
-        PRGRAM.resize(64 * 1024, 0x00);
-        switch (nMapperID) {
-        case 0:  pMapper = std::make_shared<Mapper_000>(nPRGBanks, nCHRBanks); break;
-        case 1:  pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks); break;
-        case 2:  pMapper = std::make_shared<Mapper_002>(nPRGBanks, nCHRBanks); break;
-        case 3:  pMapper = std::make_shared<Mapper_003>(nPRGBanks, nCHRBanks); break;
-        case 5:  pMapper = std::make_shared<Mapper_005>(nPRGBanks, nCHRBanks); break;
-        case 4:  pMapper = std::make_shared<Mapper_004>(nPRGBanks, nCHRBanks); break;
-        case 7:  pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks); break;
-        case 9:  pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks); break;
-        case 21: pMapper = std::make_shared<Mapper_021>(nPRGBanks, nCHRBanks); break;
-        case 23: pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
-        case 24: pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
-        case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
-        case 185:pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
-        case 221:pMapper = std::make_shared<Mapper_221>(nPRGBanks, nCHRBanks); break;
-        case 66: pMapper = std::make_shared<Mapper_066>(nPRGBanks, nCHRBanks); break;
-        case 71: pMapper = std::make_shared<Mapper_071>(nPRGBanks, nCHRBanks); break;
-        case 18: pMapper = std::make_shared<Mapper_018>(nPRGBanks, nCHRBanks); break;
-        default:
-            std::cout << "CHƯA HỖ TRỢ MAPPER ID: " << (int)nMapperID << std::endl;
-            break;
-        }
-        if (pMapper && (header.mapper2 & 0x0C) == 0x08) {
-            pMapper->nSubmapper = (header.prg_ram_size >> 4);
-        }
-        bImageValid = (pMapper != nullptr);
+    if (header.name[0] != 'N' || header.name[1] != 'E' ||
+        header.name[2] != 'S' || header.name[3] != 0x1A)
+    {
+        return false;
     }
+
+    size_t offset = 16;
+
+    nMapperID = ((header.mapper2 >> 4) << 4) | (header.mapper1 >> 4);
+
+    if (header.mapper1 & 0x01)
+        mirror = VERTICAL;
+    else
+        mirror = HORIZONTAL;
+
+    if (header.mapper1 & 0x04)
+        offset += 512;
+
+    nPRGBanks = header.prg_rom_chunks;
+    nCHRBanks = header.chr_rom_chunks;
+
+    size_t prgSize = size_t(nPRGBanks) * 16384;
+    size_t chrSize = size_t(nCHRBanks) * 8192;
+
+    if (romData.size() < offset + prgSize)
+        return false;
+
+    vPRGMemory.resize(prgSize);
+    std::memcpy(vPRGMemory.data(), romData.data() + offset, prgSize);
+    offset += prgSize;
+
+    if (nCHRBanks == 0)
+    {
+        vCHRMemory.resize(8192, 0x00);
+    }
+    else
+    {
+        if (romData.size() < offset + chrSize)
+            return false;
+
+        vCHRMemory.resize(chrSize);
+        std::memcpy(vCHRMemory.data(), romData.data() + offset, chrSize);
+        offset += chrSize;
+    }
+
+    PRGRAM.resize(64 * 1024, 0x00);
+
+    switch (nMapperID) {
+    case 0:  pMapper = std::make_shared<Mapper_000>(nPRGBanks, nCHRBanks); break;
+    case 1:  pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks); break;
+    case 2:  pMapper = std::make_shared<Mapper_002>(nPRGBanks, nCHRBanks); break;
+    case 3:  pMapper = std::make_shared<Mapper_003>(nPRGBanks, nCHRBanks); break;
+    case 4:  pMapper = std::make_shared<Mapper_004>(nPRGBanks, nCHRBanks); break;
+    case 5:  pMapper = std::make_shared<Mapper_005>(nPRGBanks, nCHRBanks); break;
+    case 7:  pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks); break;
+    case 9:  pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks); break;
+    case 18: pMapper = std::make_shared<Mapper_018>(nPRGBanks, nCHRBanks); break;
+    case 21: pMapper = std::make_shared<Mapper_021>(nPRGBanks, nCHRBanks); break;
+    case 23: pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
+    case 24: pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
+    case 66: pMapper = std::make_shared<Mapper_066>(nPRGBanks, nCHRBanks); break;
+    case 71: pMapper = std::make_shared<Mapper_071>(nPRGBanks, nCHRBanks); break;
+    case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
+    case 185:pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
+    case 221:pMapper = std::make_shared<Mapper_221>(nPRGBanks, nCHRBanks); break;
+    default:
+        std::cout << "CHƯA HỖ TRỢ MAPPER ID: " << (int)nMapperID << std::endl;
+        break;
+    }
+
+    if (pMapper && (header.mapper2 & 0x0C) == 0x08)
+    {
+        pMapper->nSubmapper = (header.prg_ram_size >> 4);
+    }
+
+    std::cout << "Mapper ID: " << (int)nMapperID << std::endl;
+    std::cout << "PRG Banks: " << (int)nPRGBanks << std::endl;
+    std::cout << "CHR Banks: " << (int)nCHRBanks << std::endl;
+
+    bImageValid = (pMapper != nullptr);
+    return bImageValid;
 }
 
 Cartridge::~Cartridge() {}

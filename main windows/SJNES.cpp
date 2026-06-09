@@ -24,18 +24,114 @@
 #include <QDir>
 #include <QFile>
 #include <QDataStream>
+#include "miniz.h"
+#include <vector>
+#include <QDialog>
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QCheckBox>
+#include <QPushButton>
+#include <QTextEdit>
+#include <QFileInfo>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+static void ShowQuickStartDialog(QWidget* parent)
+{
+    QSettings settings("chienz", "NesEmulator");
+
+    bool hideQuickStart = settings.value("HideQuickStart", false).toBool();
+
+    if (hideQuickStart)
+        return;
+
+    QDialog dialog(parent);
+    dialog.setWindowTitle("SJNES Quick Start");
+    dialog.resize(560, 420);
+
+    QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+    QLabel* title = new QLabel("SJNES - Quick Start");
+    QFont titleFont = title->font();
+    titleFont.setPointSize(14);
+    titleFont.setBold(true);
+    title->setFont(titleFont);
+
+    QTextEdit* text = new QTextEdit();
+    text->setReadOnly(true);
+
+    text->setPlainText(
+        "Chào mừng đến với SJNES!\n\n"
+        "Đây là phần mềm giả lập máy chơi game Nintendo Entertament System\n"
+        "phần mềm được code bởi Nguyễn chiến. "
+        "nếu thấy ok vui lòng cho mình 1 sao ở github nhé=)\n"
+        "1. Mở ROM:\n"
+        "   Vào File -> Open ROM để chọn file .nes hoặc .zip.\n\n"
+        "2. Điều khiển Player 1:\n"
+        "   K = A\n"
+        "   J = B\n"
+        "   U = Select\n"
+        "   Enter = Start\n"
+        "   W A S D = Di chuyển\n\n"
+        "3. Điều khiển Player 2:\n"
+        "   Phím mũi tên = Di chuyển\n"
+        "   Numpad 6 = A\n"
+        "   Numpad 5 = B\n"
+        "   Numpad 7 = Select\n"
+        "   Numpad 9 = Start\n\n"
+        "4. Phím tắt:\n"
+        "   Tab = Tua nhanh\n"
+        "   F1 = Save State Mapper 0\n"
+        "   F2 = Load State Mapper 0\n"
+        "   F11 = Fullscreen\n\n"
+        "5. Debug:\n"
+        "   Menu Debug có Audio Waveform, Mapper Viewer, Sprite Viewer và Audio Channel Debug.\n\n"
+        "Lưu ý: SJNES vẫn đang phát triển, một số game hoặc mapper có thể chưa chính xác hoàn toàn."
+    );
+
+    QCheckBox* dontShowAgain = new QCheckBox("Không hiện lại lần sau");
+
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+
+    QPushButton* okButton = new QPushButton("OK");
+    buttonLayout->addWidget(okButton);
+
+    layout->addWidget(title);
+    layout->addWidget(text);
+    layout->addWidget(dontShowAgain);
+    layout->addLayout(buttonLayout);
+
+    QObject::connect(okButton, &QPushButton::clicked, &dialog, [&]() {
+        if (dontShowAgain->isChecked())
+            settings.setValue("HideQuickStart", true);
+
+        dialog.accept();
+        });
+
+    dialog.exec();
+}
 SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+    QTimer::singleShot(300, this, [this]() {
+        ShowQuickStartDialog(this);
+        });
     initGamepad();
     updateRecentRomMenu();
     qApp->installEventFilter(this);
     fpsTimer.start();
+
     ui.txtConsole->setReadOnly(true);
     ui.txtConsole->setFocusPolicy(Qt::NoFocus);
+
+    ui.txtConsole->setParent(nullptr);
+    ui.txtConsole->setWindowTitle("SJNES Console Log");
+    ui.txtConsole->resize(420, 500);
+    ui.txtConsole->move(50, 80);
+    ui.txtConsole->show();
+
     nes_cpu.ConnectBus(&nes_bus);
     nes_bus.cpu = &nes_cpu;
     nes_bus.ppu = &nes_ppu;
@@ -100,10 +196,6 @@ SJNES::SJNES(QWidget* parent)
         }
         });
 
-    // =======================
-    // MENU: AUDIO DEBUG
-    // checked = nghe, unchecked = mute
-    // =======================
     ui.actPulse1->setCheckable(true);
     ui.actPulse2->setCheckable(true);
     ui.actTriangle->setCheckable(true);
@@ -342,6 +434,7 @@ SJNES::SJNES(QWidget* parent)
     addAppShortcut(QKeySequence("Ctrl+-"), ui.actionOverclock250);
 }
 
+
 SJNES::~SJNES()
 {
     shutdownGamepad();
@@ -491,6 +584,54 @@ void SJNES::updateGamepadInput()
     nes_bus.controller_state2 = keyboardState2 | gamepadState2;
 }
 
+static std::vector<uint8_t> LoadNesFromZip(const QString& zipPath)
+{
+    std::vector<uint8_t> result;
+
+    mz_zip_archive zip;
+    memset(&zip, 0, sizeof(zip));
+
+    QByteArray pathBytes = zipPath.toLocal8Bit();
+
+    if (!mz_zip_reader_init_file(&zip, pathBytes.constData(), 0))
+    {
+        return result;
+    }
+
+    int fileCount = (int)mz_zip_reader_get_num_files(&zip);
+
+    for (int i = 0; i < fileCount; i++)
+    {
+        mz_zip_archive_file_stat stat;
+
+        if (!mz_zip_reader_file_stat(&zip, i, &stat))
+            continue;
+
+        QString fileName = QString::fromUtf8(stat.m_filename);
+
+        if (!fileName.endsWith(".nes", Qt::CaseInsensitive))
+            continue;
+
+        size_t uncompSize = 0;
+
+        void* data = mz_zip_reader_extract_to_heap(&zip, i, &uncompSize, 0);
+
+        if (data && uncompSize > 0)
+        {
+            uint8_t* bytes = (uint8_t*)data;
+            result.assign(bytes, bytes + uncompSize);
+            mz_free(data);
+            break;
+        }
+
+        if (data)
+            mz_free(data);
+    }
+
+    mz_zip_reader_end(&zip);
+    return result;
+}
+
 void SJNES::loadRomFile(const QString& fileName)
 {
     if (fileName.isEmpty())
@@ -505,8 +646,28 @@ void SJNES::loadRomFile(const QString& fileName)
         nes_bus.ram[i] = 0x00;
 
     // 2. Nạp băng game
-    std::shared_ptr<Cartridge> cart = std::make_shared<Cartridge>(fileName.toStdString());
-    if (cart == nullptr || cart->pMapper == nullptr) {
+   // 2. Nạp băng game
+    std::shared_ptr<Cartridge> cart = nullptr;
+
+    if (fileName.endsWith(".zip", Qt::CaseInsensitive))
+    {
+        std::vector<uint8_t> romData = LoadNesFromZip(fileName);
+
+        if (romData.empty())
+        {
+            QMessageBox::warning(this, "Lỗi ROM", "Không tìm thấy file .nes trong file .zip.");
+            return;
+        }
+
+        cart = std::make_shared<Cartridge>(romData);
+    }
+    else
+    {
+        cart = std::make_shared<Cartridge>(fileName.toStdString());
+    }
+
+    if (cart == nullptr || !cart->ImageValid() || cart->pMapper == nullptr)
+    {
         QMessageBox::warning(this, "Lỗi ROM", "Không thể nạp ROM hoặc Mapper chưa được hỗ trợ.");
         return;
     }
@@ -548,7 +709,12 @@ void SJNES::onOpenROMClicked()
     QSettings settings("chienz", "NesEmulator");
     QString lastPath = settings.value("LastRomPath", "D:\\").toString();
 
-    QString fileName = QFileDialog::getOpenFileName(this, "Chọn ROM", lastPath, "NES Files (*.nes)");
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        "Open ROM",
+        lastPath,
+        "All Files (*.*);;NES Files (*.nes);;ZIP Files (*.zip)"
+    );
 
     if (!fileName.isEmpty()) {
         QFileInfo fileInfo(fileName);
@@ -1318,4 +1484,39 @@ bool SJNES::loadStateMapper0(const QString& path)
     nes_bus.n_apu.reset();
 
     return in.status() == QDataStream::Ok;
+}
+void SJNES::closeEvent(QCloseEvent* event)
+{
+    // Dừng giả lập trước
+    if (timer)
+        timer->stop();
+
+    // Đóng cửa sổ Audio Waveform
+    if (audioWaveWindow)
+    {
+        audioWaveWindow->close();
+        audioWaveWindow = nullptr;
+    }
+
+    // Đóng cửa sổ Mapper Viewer
+    if (mapperViewerWindow)
+    {
+        mapperViewerWindow->close();
+        mapperViewerWindow = nullptr;
+    }
+
+    // Đóng cửa sổ Sprite Viewer
+    if (spriteViewerWindow)
+    {
+        spriteViewerWindow->close();
+        spriteViewerWindow = nullptr;
+    }
+
+    // Đóng Console Log riêng
+    if (ui.txtConsole)
+    {
+        ui.txtConsole->close();
+    }
+
+    QMainWindow::closeEvent(event);
 }

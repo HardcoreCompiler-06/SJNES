@@ -54,20 +54,13 @@
     <addaction name="actPause"/>
     <addaction name="actExit"/>
    </widget>
-   <widget class="QMenu" name="menuAUDIO">
+   <widget class="QMenu" name="menuDebug">
     <property name="title">
-     <string>Audio</string>
+     <string>Debug</string>
     </property>
-    <widget class="QMenu" name="Audio">
+    <widget class="QMenu" name="menuAudio_channel">
      <property name="title">
-      <string>Speaker</string>
-     </property>
-     <addaction name="actMono"/>
-     <addaction name="actStereo"/>
-    </widget>
-    <widget class="QMenu" name="Debug">
-     <property name="title">
-      <string>Debug</string>
+      <string>Audio channel</string>
      </property>
      <addaction name="actPulse1"/>
      <addaction name="actPulse2"/>
@@ -76,53 +69,60 @@
      <addaction name="actDMC"/>
      <addaction name="actVRC6"/>
     </widget>
-    <addaction name="Audio"/>
-    <addaction name="Debug"/>
-   </widget>
-   <widget class="QMenu" name="menuFilter">
-    <property name="title">
-     <string>filter</string>
-    </property>
-    <addaction name="actPixelPerfect"/>
-    <addaction name="actScanline"/>
-    <addaction name="actCrtLite"/>
-   </widget>
-   <widget class="QMenu" name="menuDebug">
-    <property name="title">
-     <string>Debug</string>
-    </property>
     <addaction name="actAudioWaveform"/>
     <addaction name="actMapperViewer"/>
     <addaction name="actSpriteViewer"/>
-   </widget>
-   <widget class="QMenu" name="menuFPS">
-    <property name="title">
-     <string>FPS</string>
-    </property>
-    <addaction name="action60fps"/>
-   </widget>
-   <widget class="QMenu" name="menuoverclock">
-    <property name="title">
-     <string>overclock</string>
-    </property>
-    <addaction name="actionOverclockOff"/>
-    <addaction name="actionOverclock50"/>
-    <addaction name="actionOverclock100"/>
-    <addaction name="actionOverclock200"/>
-    <addaction name="actionOverclock250"/>
-    <addaction name="actRemoveSpriteLimit"/>
+    <addaction name="menuAudio_channel"/>
    </widget>
    <widget class="QMenu" name="menuRecentROMs_2">
     <property name="title">
      <string>RecentROMs</string>
     </property>
    </widget>
+   <widget class="QMenu" name="menuSetting">
+    <property name="title">
+     <string>Setting</string>
+    </property>
+    <widget class="QMenu" name="menuvideo">
+     <property name="title">
+      <string>Video</string>
+     </property>
+     <addaction name="actPixelPerfect"/>
+     <addaction name="actScanline"/>
+     <addaction name="actCrtLite"/>
+     <addaction name="action60fps"/>
+    </widget>
+    <widget class="QMenu" name="menuAudio">
+     <property name="title">
+      <string>Audio</string>
+     </property>
+     <addaction name="actMono"/>
+     <addaction name="actStereo"/>
+    </widget>
+    <widget class="QMenu" name="menuPerformance">
+     <property name="title">
+      <string>Performance</string>
+     </property>
+     <widget class="QMenu" name="menuOverclock">
+      <property name="title">
+       <string>Overclock</string>
+      </property>
+      <addaction name="actionOverclockOff"/>
+      <addaction name="actionOverclock50"/>
+      <addaction name="actionOverclock100"/>
+      <addaction name="actionOverclock200"/>
+      <addaction name="actionOverclock250"/>
+     </widget>
+     <addaction name="menuOverclock"/>
+     <addaction name="actRemoveSpriteLimit"/>
+    </widget>
+    <addaction name="menuvideo"/>
+    <addaction name="menuAudio"/>
+    <addaction name="menuPerformance"/>
+   </widget>
    <addaction name="menuFile"/>
-   <addaction name="menuAUDIO"/>
-   <addaction name="menuFilter"/>
+   <addaction name="menuSetting"/>
    <addaction name="menuDebug"/>
-   <addaction name="menuFPS"/>
-   <addaction name="menuoverclock"/>
    <addaction name="menuRecentROMs_2"/>
   </widget>
   <action name="actOpenROM">
@@ -143,46 +143,6 @@
   <action name="actExit">
    <property name="text">
     <string>Exit</string>
-   </property>
-  </action>
-  <action name="actMono">
-   <property name="text">
-    <string>Mono</string>
-   </property>
-  </action>
-  <action name="actStereo">
-   <property name="text">
-    <string>Stereo</string>
-   </property>
-  </action>
-  <action name="actPulse1">
-   <property name="text">
-    <string>Pulse1</string>
-   </property>
-  </action>
-  <action name="actPulse2">
-   <property name="text">
-    <string>Pulse2</string>
-   </property>
-  </action>
-  <action name="actTriangle">
-   <property name="text">
-    <string>Triangle</string>
-   </property>
-  </action>
-  <action name="actNoise">
-   <property name="text">
-    <string>Noise</string>
-   </property>
-  </action>
-  <action name="actDMC">
-   <property name="text">
-    <string>DMC</string>
-   </property>
-  </action>
-  <action name="actVRC6">
-   <property name="text">
-    <string>VRC6</string>
    </property>
   </action>
   <action name="actPixelPerfect">
@@ -292,6 +252,46 @@
   <action name="menuRecentROMs">
    <property name="text">
     <string>Recent ROMs</string>
+   </property>
+  </action>
+  <action name="actMono">
+   <property name="text">
+    <string>Mono</string>
+   </property>
+  </action>
+  <action name="actStereo">
+   <property name="text">
+    <string>Stereo</string>
+   </property>
+  </action>
+  <action name="actPulse1">
+   <property name="text">
+    <string>Pulse1</string>
+   </property>
+  </action>
+  <action name="actPulse2">
+   <property name="text">
+    <string>Pulse2</string>
+   </property>
+  </action>
+  <action name="actTriangle">
+   <property name="text">
+    <string>Triangle</string>
+   </property>
+  </action>
+  <action name="actNoise">
+   <property name="text">
+    <string>Noise</string>
+   </property>
+  </action>
+  <action name="actDMC">
+   <property name="text">
+    <string>DMC</string>
+   </property>
+  </action>
+  <action name="actVRC6">
+   <property name="text">
+    <string>VRC6</string>
    </property>
   </action>
  </widget>

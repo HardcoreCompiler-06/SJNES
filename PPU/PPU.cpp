@@ -83,20 +83,59 @@ void PPU::ConnectCartridge(const std::shared_ptr<Cartridge>& cartridge) {
 }
 
 void PPU::reset() {
-    fine_x = 0x00; address_latch = 0x00; ppu_data_buffer = 0x00;
-    scanline = 0; cycle = 0;
-    bg_next_tile_id = 0x00; bg_next_tile_attrib = 0x00;
-    bg_next_tile_lsb = 0x00; bg_next_tile_msb = 0x00;
-    bg_shifter_pattern_lo = 0x0000; bg_shifter_pattern_hi = 0x0000;
-    bg_shifter_attrib_lo = 0x0000; bg_shifter_attrib_hi = 0x0000;
-    status = 0x00; ppu_mask = 0x00; ppu_ctrl = 0x00;
-    vram_addr.reg = 0x0000; tram_addr.reg = 0x0000;
+    fine_x = 0x00;
+    address_latch = 0x00;
+    ppu_data_buffer = 0x00;
+
+    scanline = 0;
+    cycle = 0;
+
+    bg_next_tile_id = 0x00;
+    bg_next_tile_attrib = 0x00;
+    bg_next_tile_lsb = 0x00;
+    bg_next_tile_msb = 0x00;
+
+    bg_shifter_pattern_lo = 0x0000;
+    bg_shifter_pattern_hi = 0x0000;
+    bg_shifter_attrib_lo = 0x0000;
+    bg_shifter_attrib_hi = 0x0000;
+
+    status = 0x00;
+    ppu_mask = 0x00;
+    ppu_ctrl = 0x00;
+
+    vram_addr.reg = 0x0000;
+    tram_addr.reg = 0x0000;
+
+    nmi_requested = false;
+    oam_addr = 0x00;
+
     mapper_a12 = false;
     mapper_a12_low_cycles = 255;
-    for (int i = 0; i < 256 * 240; i++)
+
+    sprite_count = 0;
+
+    for (int i = 0; i < 256; i++)
+        OAM[i] = 0x00;
+
+    for (int t = 0; t < 2; t++)
+        for (int i = 0; i < 1024; i++)
+            tblName[t][i] = 0x00;
+
+    for (int i = 0; i < 32; i++)
+        tblPalette[i] = 0x00;
+
+    for (int i = 0; i < 64; i++)
     {
-        frame_pixels[i] = palScreen[0x0F].rgb();
+        sprite_pattern_lo[i] = 0x00;
+        sprite_pattern_hi[i] = 0x00;
+        sprite_x[i] = 0x00;
+        sprite_attribute[i] = 0x00;
+        sprite_zero_being_rendered[i] = false;
     }
+
+    for (int i = 0; i < 256 * 240; i++)
+        frame_pixels[i] = palScreen[0x0F].rgb();
 }
 
 // ==============================================================================
@@ -129,11 +168,26 @@ uint8_t PPU::cpuRead(uint16_t addr, bool rdonly) {
         case 0x0005: break;
         case 0x0006: break;
         case 0x0007:
-            data = ppu_data_buffer;
-            ppu_data_buffer = ppuRead(vram_addr.reg);
-            if (vram_addr.reg >= 0x3F00) data = ppu_data_buffer;
+        {
+            uint16_t addr = vram_addr.reg & 0x3FFF;
+
+            if (addr >= 0x3F00)
+            {
+                // Palette read không bị delay
+                data = ppuRead(addr);
+
+                // Nhưng buffer vẫn được cập nhật từ nametable mirror bên dưới
+                ppu_data_buffer = ppuRead(addr - 0x1000);
+            }
+            else
+            {
+                data = ppu_data_buffer;
+                ppu_data_buffer = ppuRead(addr);
+            }
+
             vram_addr.reg += (ppu_ctrl & 0x04) ? 32 : 1;
-            break;
+        }
+        break;
         }
     }
     return data;
@@ -573,8 +627,9 @@ void PPU::Step() {
                 // Không evaluate sprite ngoài vùng visible
                 if (target_scanline >= 0 && target_scanline < 240) {
                     int spriteLimit = bRemoveSpriteLimit ? 64 : 8;
-
-                    for (int i = 0; i < 64 && sprite_count < spriteLimit; i++) {
+                    int foundSprites = 0;
+                    for (int i = 0; i < 64; i++)
+                    {
                         uint8_t sprite_y = OAM[i * 4 + 0];
                         uint8_t sprite_id = OAM[i * 4 + 1];
                         uint8_t sprite_attr = OAM[i * 4 + 2];
@@ -583,34 +638,45 @@ void PPU::Step() {
                         int spriteHeight = (ppu_ctrl & 0x20) ? 16 : 8;
                         int diffY = target_scanline - (sprite_y + 1);
 
-                        if (diffY >= 0 && diffY < spriteHeight) {
+                        if (diffY >= 0 && diffY < spriteHeight)
+                        {
+                            foundSprites++;
+
+                            if (foundSprites > 8)
+                                status |= 0x20; // sprite overflow, gần đúng
+
+                            if (sprite_count >= spriteLimit)
+                                continue;
+
                             bool flipY = (sprite_attr & 0x80) != 0;
                             int row = flipY ? (spriteHeight - 1 - diffY) : diffY;
 
                             uint16_t pattern_addr = 0;
 
-                            if (spriteHeight == 8) {
+                            if (spriteHeight == 8)
+                            {
                                 pattern_addr =
                                     ((ppu_ctrl & 0x08) ? 0x1000 : 0x0000) |
                                     ((uint16_t)sprite_id << 4) |
                                     row;
                             }
-                            else {
+                            else
+                            {
                                 uint16_t table = (sprite_id & 0x01) ? 0x1000 : 0x0000;
                                 uint16_t tile = (sprite_id & 0xFE);
 
-                                if (row < 8) {
+                                if (row < 8)
                                     pattern_addr = table | (tile << 4) | row;
-                                }
-                                else {
+                                else
                                     pattern_addr = table | ((tile + 1) << 4) | (row - 8);
-                                }
                             }
+
                             if (cart && cart->pMapper)
                             {
                                 if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
                                     mmc5->SetChrFetchModeSprite();
                             }
+
                             sprite_pattern_lo[sprite_count] = ppuRead(pattern_addr);
                             sprite_pattern_hi[sprite_count] = ppuRead(pattern_addr + 8);
                             sprite_x[sprite_count] = sprite_x_pos;
@@ -712,7 +778,13 @@ void PPU::Step() {
                     }
                 }
 
-        uint8_t pal_idx = (final_pixel != 0) ? (ppuRead(0x3F00 + (final_palette << 2) + final_pixel) & 0x3F) : (ppuRead(0x3F00) & 0x3F);
+        uint8_t pal_idx = (final_pixel != 0)
+            ? (ppuRead(0x3F00 + (final_palette << 2) + final_pixel) & 0x3F)
+            : (ppuRead(0x3F00) & 0x3F);
+
+        // PPUMASK bit 0: grayscale
+        if (ppu_mask & 0x01)
+            pal_idx &= 0x30;
 
         frame_pixels[scanline * 256 + (cycle - 1)] = palScreen[pal_idx].rgb();
     }

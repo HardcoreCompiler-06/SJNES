@@ -8,9 +8,13 @@
 
 class Cartridge {
 public:
-    Cartridge(const std::string& sFileName);
     ~Cartridge();
 
+    Cartridge(const std::string& sFileName);
+    Cartridge(const std::vector<uint8_t>& romData);
+
+    bool LoadFromFile(const std::string& sFileName);
+    bool LoadFromData(const std::vector<uint8_t>& romData);
     bool ImageValid();
     bool ppuRead(uint16_t addr, uint8_t& data);
     bool ppuWrite(uint16_t addr, uint8_t data);

@@ -1,6 +1,6 @@
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
-// Used by SJNES.rc
+// Used by Resource.rc
 
 // Next default values for new objects
 // 
