@@ -33,6 +33,7 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QTextEdit>
+#include <QTextBrowser>
 #include <QFileInfo>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -115,6 +116,48 @@ SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+
+        connect(ui.actAboutSJNES, &QAction::triggered, this, [this]() {
+            QDialog dialog(this);
+            dialog.setWindowTitle("About SJNES");
+            dialog.resize(520, 360);
+
+            QVBoxLayout* layout = new QVBoxLayout(&dialog);
+
+            QLabel* title = new QLabel("SJNES - Nintendo Entertainment System Emulator");
+            QFont titleFont = title->font();
+            titleFont.setPointSize(13);
+            titleFont.setBold(true);
+            title->setFont(titleFont);
+
+            QTextBrowser* infoText = new QTextBrowser();
+            infoText->setOpenExternalLinks(true);
+
+            infoText->setHtml(
+                "<h3>SJNES Emulator</h3>"
+                "<p><b>phiên bản:</b> 1.8</p>"
+                "<p><b>lần đầu phát hành:</b> 9/4/2026</p>"
+                "<p><b>Developer:</b> Nguyễn Quyết Chiến</p>"
+                "<p><b>ngôn ngữ lập trình:</b> C++ / Qt</p>"
+                "<p><b>rom hỗ trợ:</b> .nes, .zip</p>"
+                "<p><b>License:</b> "
+                "<a href='https://github.com/newbie1412-mmb/SJNES/blob/main/LICENSE'>View License</a>"
+                "</p>"
+                "<hr>"
+                "<p>SJNES là một phần mềm mã nguồn mở giả lập NES(Nintendo Entertament System) hiện phần mềm này đang trong quá trình phát triển </p>"
+            );
+
+            QPushButton* okButton = new QPushButton("OK");
+
+            layout->addWidget(title);
+            layout->addWidget(infoText);
+            layout->addWidget(okButton);
+
+            connect(okButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+            dialog.exec();
+            });
+
     QTimer::singleShot(300, this, [this]() {
         ShowQuickStartDialog(this);
         });

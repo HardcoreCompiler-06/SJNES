@@ -120,10 +120,17 @@
     <addaction name="menuAudio"/>
     <addaction name="menuPerformance"/>
    </widget>
+   <widget class="QMenu" name="menuhelp">
+    <property name="title">
+     <string>help</string>
+    </property>
+    <addaction name="actAboutSJNES"/>
+   </widget>
    <addaction name="menuFile"/>
    <addaction name="menuSetting"/>
    <addaction name="menuDebug"/>
    <addaction name="menuRecentROMs_2"/>
+   <addaction name="menuhelp"/>
   </widget>
   <action name="actOpenROM">
    <property name="text">
@@ -292,6 +299,11 @@
   <action name="actVRC6">
    <property name="text">
     <string>VRC6</string>
+   </property>
+  </action>
+  <action name="actAboutSJNES">
+   <property name="text">
+    <string>about SJNES</string>
    </property>
   </action>
  </widget>
