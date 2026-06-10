@@ -144,7 +144,7 @@ SJNES::SJNES(QWidget* parent)
                 "<a href='https://github.com/newbie1412-mmb/SJNES/blob/main/LICENSE'>View License</a>"
                 "</p>"
                 "<hr>"
-                "<p>SJNES là một phần mềm mã nguồn mở giả lập NES(Nintendo Entertament System) hiện phần mềm này đang trong quá trình phát triển </p>"
+                "<p>SJNES là một phần mềm mã nguồn mở giả lập NES(Nintendo Entertainment System) hiện phần mềm này đang trong quá trình phát triển </p>"
             );
 
             QPushButton* okButton = new QPushButton("OK");
