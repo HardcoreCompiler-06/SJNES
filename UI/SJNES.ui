@@ -69,7 +69,15 @@
      <addaction name="actDMC"/>
      <addaction name="actVRC6"/>
     </widget>
-    <addaction name="actAudioWaveform"/>
+    <widget class="QMenu" name="menuAudio_Waveform">
+     <property name="title">
+      <string>Audio Waveform</string>
+     </property>
+     <addaction name="actWaveVRC6"/>
+     <addaction name="actWaveVRC7"/>
+     <addaction name="actWaveS5B"/>
+    </widget>
+    <addaction name="menuAudio_Waveform"/>
     <addaction name="actMapperViewer"/>
     <addaction name="actSpriteViewer"/>
     <addaction name="menuAudio_channel"/>
@@ -122,9 +130,10 @@
    </widget>
    <widget class="QMenu" name="menuhelp">
     <property name="title">
-     <string>help</string>
+     <string>Help</string>
     </property>
     <addaction name="actAboutSJNES"/>
+    <addaction name="actQuickStart"/>
    </widget>
    <addaction name="menuFile"/>
    <addaction name="menuSetting"/>
@@ -165,17 +174,6 @@
   <action name="actCrtLite">
    <property name="text">
     <string>CRT Lite</string>
-   </property>
-  </action>
-  <action name="actAudioWaveform">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
-    <bool>false</bool>
-   </property>
-   <property name="text">
-    <string>Audio Waveform</string>
    </property>
   </action>
   <action name="actMapperViewer">
@@ -303,7 +301,27 @@
   </action>
   <action name="actAboutSJNES">
    <property name="text">
-    <string>about SJNES</string>
+    <string>About SJNES</string>
+   </property>
+  </action>
+  <action name="actQuickStart">
+   <property name="text">
+    <string>Quick start</string>
+   </property>
+  </action>
+  <action name="actWaveVRC6">
+   <property name="text">
+    <string>VRC6</string>
+   </property>
+  </action>
+  <action name="actWaveVRC7">
+   <property name="text">
+    <string>VRC7</string>
+   </property>
+  </action>
+  <action name="actWaveS5B">
+   <property name="text">
+    <string>S5B</string>
    </property>
   </action>
  </widget>

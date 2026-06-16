@@ -1,31 +1,48 @@
 #pragma once
 
-#include <QWidget>
+#include <QOpenGLWidget>
+#include <QSurfaceFormat>
+#include <QTimer>
 #include <QVector>
 #include <QMutex>
-#include <QTimer>
 #include <QString>
 #include "APU.h"
 
-class AudioWaveWindow : public QWidget
+class AudioWaveWindow : public QOpenGLWidget
 {
     Q_OBJECT
 
 public:
-    explicit AudioWaveWindow(QWidget* parent = nullptr);
-    void setOverlayText(const QString& text);
+    enum class WaveMode
+    {
+        VRC6,
+        VRC7,
+        S5B
+    };
+
+    AudioWaveWindow(WaveMode mode, QWidget* parent = nullptr);
+
     void pushChannels(const AudioDebugChannels& ch);
     void clearSamples();
-    void paintEvent(QPaintEvent* event) override;
+
+protected:
+    void initializeGL() override;
+    void resizeGL(int w, int h) override;
+    void paintGL() override;
 
 private:
-    QString overlayText;
-    static constexpr int MAX_SAMPLES = 16384;
-    static constexpr int DISPLAY_SAMPLES = 1024;
-    static constexpr int CHANNEL_COUNT = 8;
-    QVector<float> buffers[CHANNEL_COUNT];
+    static constexpr int CHANNEL_COUNT = 11;
+    static constexpr int MAX_SAMPLES = 8192;
+    static constexpr int DISPLAY_SAMPLES = 2048;
+
     QString names[CHANNEL_COUNT];
-    float lastVisual[CHANNEL_COUNT] = {};
-    QMutex mutex;
+    QVector<float> buffers[CHANNEL_COUNT];
+    float lastVisual[CHANNEL_COUNT]{};
+
     QTimer* refreshTimer = nullptr;
+    QMutex mutex;
+
+    WaveMode mode;
+    int activeChannelCount = 8;
+ 
 };

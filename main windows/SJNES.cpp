@@ -12,6 +12,7 @@
 #include <QActionGroup>
 #include "GpuScreenWidget.h"
 #include "Mapper_024.h"
+#include "Mapper_069.h"
 #include <QAction>
 #include <QShortcut>
 #include <QKeySequence>
@@ -33,17 +34,18 @@
 #include <QCheckBox>
 #include <QPushButton>
 #include <QTextEdit>
+#include "Mapper_085.h"
 #include <QTextBrowser>
 #include <QFileInfo>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
-static void ShowQuickStartDialog(QWidget* parent)
+static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
 {
     QSettings settings("chienz", "NesEmulator");
 
-    bool hideQuickStart = settings.value("HideQuickStart", false).toBool();
+    bool hideQuickStart = settings.value("hideQuickStart", false).toBool();
 
-    if (hideQuickStart)
+    if (hideQuickStart && !forceShow)
         return;
 
     QDialog dialog(parent);
@@ -87,7 +89,11 @@ static void ShowQuickStartDialog(QWidget* parent)
         "   F11 = Fullscreen\n\n"
         "5. Debug:\n"
         "   Menu Debug có Audio Waveform, Mapper Viewer, Sprite Viewer và Audio Channel Debug.\n\n"
-        "Lưu ý: SJNES vẫn đang phát triển, một số game hoặc mapper có thể chưa chính xác hoàn toàn."
+        "Lưu ý: SJNES là phần mềm giả lập NES đang trong quá trình phát triển, được thực hiện với mục đích học tập và nghiên cứu.\n"
+        "Phần mềm không bao gồm, không lưu trữ, không phân phối và không cung cấp liên kết tải ROM, game có bản quyền của Nintendo hoặc bất kỳ bên thứ ba nào."
+        "Người dùng chỉ nên sử dụng các ROM homebrew, public domain hoặc các bản sao được tạo hợp pháp từ băng game mà mình sở hữu, tùy theo quy định pháp luật tại nơi sinh sống."
+        "SJNES là dự án độc lập, không liên kết, không được tài trợ và không được xác nhận bởi Nintendo."
+
     );
 
     QCheckBox* dontShowAgain = new QCheckBox("Không hiện lại lần sau");
@@ -116,6 +122,54 @@ SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+
+    connect(ui.actWaveVRC6, &QAction::triggered, this, [this]() {
+        if (!vrc6WaveWindow)
+        {
+            vrc6WaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::VRC6, nullptr);
+            vrc6WaveWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+            connect(vrc6WaveWindow, &QObject::destroyed, this, [this]() {
+                vrc6WaveWindow = nullptr;
+                });
+        }
+
+        vrc6WaveWindow->show();
+        vrc6WaveWindow->raise();
+        vrc6WaveWindow->activateWindow();
+        });
+
+    connect(ui.actWaveVRC7, &QAction::triggered, this, [this]() {
+        if (!vrc7WaveWindow)
+        {
+            vrc7WaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::VRC7, nullptr);
+            vrc7WaveWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+            connect(vrc7WaveWindow, &QObject::destroyed, this, [this]() {
+                vrc7WaveWindow = nullptr;
+                });
+        }
+
+        vrc7WaveWindow->show();
+        vrc7WaveWindow->raise();
+        vrc7WaveWindow->activateWindow();
+        });
+
+    connect(ui.actWaveS5B, &QAction::triggered, this, [this]() {
+        if (!s5bWaveWindow)
+        {
+            s5bWaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::S5B, nullptr);
+            s5bWaveWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+            connect(s5bWaveWindow, &QObject::destroyed, this, [this]() {
+                s5bWaveWindow = nullptr;
+                });
+        }
+
+        s5bWaveWindow->show();
+        s5bWaveWindow->raise();
+        s5bWaveWindow->activateWindow();
+        });
 
         connect(ui.actAboutSJNES, &QAction::triggered, this, [this]() {
             QDialog dialog(this);
@@ -199,6 +253,10 @@ SJNES::SJNES(QWidget* parent)
 
     connect(ui.actExit, &QAction::triggered,
         this, &QWidget::close);
+
+    connect(ui.actQuickStart, &QAction::triggered, this, [this]() {
+        ShowQuickStartDialog(this, true);
+        });
     // MENU: AUDIO - Mono / Stereo
     ui.actMono->setCheckable(true);
     ui.actStereo->setCheckable(true);
@@ -290,37 +348,6 @@ SJNES::SJNES(QWidget* parent)
         resizeEvent(nullptr);
         });
 
-    ui.actAudioWaveform->setCheckable(true);
-    ui.actAudioWaveform->setChecked(false);
-
-    connect(ui.actAudioWaveform, &QAction::toggled, this, [this](bool checked) {
-        if (checked)
-        {
-            if (!audioWaveWindow)
-            {
-                audioWaveWindow = new AudioWaveWindow(nullptr); // cửa sổ riêng
-                audioWaveWindow->setAttribute(Qt::WA_DeleteOnClose);
-
-                connect(audioWaveWindow, &QObject::destroyed, this, [this]() {
-                    audioWaveWindow = nullptr;
-                    ui.actAudioWaveform->setChecked(false);
-                    });
-            }
-
-            audioWaveWindow->show();
-            audioWaveWindow->raise();
-            audioWaveWindow->activateWindow();
-        }
-        else
-        {
-            if (audioWaveWindow)
-            {
-                audioWaveWindow->close();
-                audioWaveWindow = nullptr;
-            }
-        }
-        });
-
     connect(ui.actMapperViewer, &QAction::triggered, this, [this]() {
         if (!mapperViewerWindow)
         {
@@ -391,7 +418,9 @@ SJNES::SJNES(QWidget* parent)
     ui.actCrtLite->setShortcutContext(Qt::ApplicationShortcut);
     ui.actPixelPerfect->setShortcutContext(Qt::ApplicationShortcut);
 
-    ui.actAudioWaveform->setShortcutContext(Qt::ApplicationShortcut);
+    ui.actWaveVRC6->setEnabled(true);
+    ui.actWaveVRC7->setEnabled(true);
+    ui.actWaveS5B->setEnabled(true);
     ui.actMapperViewer->setShortcutContext(Qt::ApplicationShortcut);
     ui.actSpriteViewer->setShortcutContext(Qt::ApplicationShortcut);
 
@@ -462,8 +491,9 @@ SJNES::SJNES(QWidget* parent)
     addAppShortcut(QKeySequence("Ctrl+5"), ui.actDMC);
     addAppShortcut(QKeySequence("Ctrl+6"), ui.actVRC6);
     // Debug / filter nếu muốn
-    addAppShortcut(QKeySequence("Ctrl+W"), ui.actAudioWaveform);
-    // File / control nếu muốn
+    ui.actWaveVRC6->setShortcut(QKeySequence("Alt+6"));
+    ui.actWaveVRC7->setShortcut(QKeySequence("Alt+7"));
+    ui.actWaveS5B->setShortcut(QKeySequence("Alt+5"));   
     addAppShortcut(QKeySequence("Ctrl+O"), ui.actOpenROM);
     addAppShortcut(QKeySequence("Ctrl+R"), ui.actReset);
     addAppShortcut(QKeySequence("Space"), ui.actPause);
@@ -952,25 +982,54 @@ void SJNES::runFrame() {
                     if (is_stereo) {
                         float left, right;
                         nes_bus.n_apu.GetOutputSampleStereo(left, right);
+
+                        float exp = 0.0f;
+                        if (nes_bus.cart && nes_bus.cart->pMapper)
+                        {
+                            exp = nes_bus.cart->pMapper->GetExpansionAudio();
+                        }
+
                         AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
 
                         if (nes_bus.cart && nes_bus.cart->pMapper)
                         {
-                            nes_bus.cart->pMapper->GetExpansionDebugChannels(
-                                dbg.vrc6Pulse1,
-                                dbg.vrc6Pulse2,
-                                dbg.vrc6Saw
-                            );
+                            if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
+                            {
+                                m85->GetVrc7DebugChannels(
+                                    dbg.vrc7Wave1,
+                                    dbg.vrc7Wave2,
+                                    dbg.vrc7Wave3,
+                                    dbg.vrc7Wave4,
+                                    dbg.vrc7Wave5,
+                                    dbg.vrc7Wave6
+                                );
+                            }
+                            else if (auto* m69 = dynamic_cast<Mapper_069*>(nes_bus.cart->pMapper.get()))
+                            {
+                                m69->GetExpansionDebugChannels(
+                                    dbg.s5bToneA,
+                                    dbg.s5bToneB,
+                                    dbg.s5bToneC
+                                );
+                            }
+                            else
+                            {
+                                nes_bus.cart->pMapper->GetExpansionDebugChannels(
+                                    dbg.vrc6Pulse1,
+                                    dbg.vrc6Pulse2,
+                                    dbg.vrc6Saw
+                                );
+                            }
                         }
 
-                        if (audioWaveWindow && audioWaveWindow->isVisible())
-                        {
-                            audioWaveWindow->pushChannels(dbg);
-                        }
-                        float exp = 0.0f;
-                        if (nes_bus.cart && nes_bus.cart->pMapper) {
-                            exp = nes_bus.cart->pMapper->GetExpansionAudio();
-                        }
+                        if (vrc6WaveWindow && vrc6WaveWindow->isVisible())
+                            vrc6WaveWindow->pushChannels(dbg);
+
+                        if (vrc7WaveWindow && vrc7WaveWindow->isVisible())
+                            vrc7WaveWindow->pushChannels(dbg);
+
+                        if (s5bWaveWindow && s5bWaveWindow->isVisible())
+                            s5bWaveWindow->pushChannels(dbg);
 
                         left += exp;
                         right += exp;
@@ -983,24 +1042,63 @@ void SJNES::runFrame() {
                     }
                     else {
                         float sample = nes_bus.n_apu.GetOutputSample();
+
+                        // Quan trọng: gọi expansion audio trước để VRC7 OPLL_calc() chạy
+                        float exp = 0.0f;
+                        if (nes_bus.cart && nes_bus.cart->pMapper)
+                        {
+                            exp = nes_bus.cart->pMapper->GetExpansionAudio();
+                        }
+
                         AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
 
                         if (nes_bus.cart && nes_bus.cart->pMapper)
                         {
-                            nes_bus.cart->pMapper->GetExpansionDebugChannels(
-                                dbg.vrc6Pulse1,
-                                dbg.vrc6Pulse2,
-                                dbg.vrc6Saw
-                            );
+                            if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
+                            {
+                                m85->GetVrc7DebugChannels(
+                                    dbg.vrc7Wave1,
+                                    dbg.vrc7Wave2,
+                                    dbg.vrc7Wave3,
+                                    dbg.vrc7Wave4,
+                                    dbg.vrc7Wave5,
+                                    dbg.vrc7Wave6
+                                );
+                            }
+                            else if (auto* m69 = dynamic_cast<Mapper_069*>(nes_bus.cart->pMapper.get()))
+                            {
+                                m69->GetExpansionDebugChannels(
+                                    dbg.s5bToneA,
+                                    dbg.s5bToneB,
+                                    dbg.s5bToneC
+                                );
+                            }
+                            else
+                            {
+                                nes_bus.cart->pMapper->GetExpansionDebugChannels(
+                                    dbg.vrc6Pulse1,
+                                    dbg.vrc6Pulse2,
+                                    dbg.vrc6Saw
+                                );
+                            }
                         }
 
-                        if (audioWaveWindow && audioWaveWindow->isVisible())
+                        if (vrc6WaveWindow && vrc6WaveWindow->isVisible())
                         {
-                            audioWaveWindow->pushChannels(dbg);
+                            vrc6WaveWindow->pushChannels(dbg);
                         }
-                        if (nes_bus.cart && nes_bus.cart->pMapper) {
-                            sample += nes_bus.cart->pMapper->GetExpansionAudio();
+
+                        if (vrc7WaveWindow && vrc7WaveWindow->isVisible())
+                        {
+                            vrc7WaveWindow->pushChannels(dbg);
                         }
+
+                        if (s5bWaveWindow && s5bWaveWindow->isVisible())
+                        {
+                            s5bWaveWindow->pushChannels(dbg);
+                        }
+
+                        sample += exp;
 
                         sample = std::clamp(sample * MASTER_VOLUME, -1.0f, 1.0f);
 
@@ -1535,11 +1633,14 @@ void SJNES::closeEvent(QCloseEvent* event)
         timer->stop();
 
     // Đóng cửa sổ Audio Waveform
-    if (audioWaveWindow)
-    {
-        audioWaveWindow->close();
-        audioWaveWindow = nullptr;
-    }
+    if (vrc6WaveWindow)
+        vrc6WaveWindow->clearSamples();
+
+    if (vrc7WaveWindow)
+        vrc7WaveWindow->clearSamples();
+
+    if (s5bWaveWindow)
+        s5bWaveWindow->clearSamples();
 
     // Đóng cửa sổ Mapper Viewer
     if (mapperViewerWindow)

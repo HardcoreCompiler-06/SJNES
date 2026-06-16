@@ -16,6 +16,17 @@ struct AudioDebugChannels {
     float vrc6Pulse1 = 0.0f;
     float vrc6Pulse2 = 0.0f;
     float vrc6Saw = 0.0f;
+
+    float s5bToneA = 0.0f;
+    float s5bToneB = 0.0f;
+    float s5bToneC = 0.0f;
+
+    float vrc7Wave1 = 0.0f;
+    float vrc7Wave2 = 0.0f;
+    float vrc7Wave3 = 0.0f;
+    float vrc7Wave4 = 0.0f;
+    float vrc7Wave5 = 0.0f;
+    float vrc7Wave6 = 0.0f;
 };
 class Bus;
 
