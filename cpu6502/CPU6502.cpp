@@ -1,9 +1,7 @@
 #include "CPU6502.h"
 #include "Bus.h"
 
-// ==============================================================================
 // CỤC 1: KHỞI TẠO, BẢNG TỪ ĐIỂN 256 LỆNH VÀ CÁC TÍN HIỆU PHẦN CỨNG
-// ==============================================================================
 
 CPU6502::CPU6502()
 {
@@ -112,8 +110,6 @@ void CPU6502::clock() {
             cycles = 8;
         }
         else if (IsIrqActive() && GetFlag(I) == 0) {
-            // If this was the old one-shot irq() request, consume it.
-            // Held IRQ sources remain active until ClearIrqSource() is called.
             if (irq_sources == 0) {
                 irq_pending = false;
             }

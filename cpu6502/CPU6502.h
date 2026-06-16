@@ -24,13 +24,10 @@ public:
     uint8_t  status = 0x00;
 
     void reset();
-    void irq();   // Compatibility: one-shot IRQ request
+    void irq();   
     void nmi();
     void clock();
 
-    // IRQ line/source style, closer to NES/Mesen behavior.
-    // Mapper MMC3 should call SetIrqSource(IRQ_EXTERNAL) when IRQ line is asserted
-    // and ClearIrqSource(IRQ_EXTERNAL) on $E000/acknowledge.
     enum IRQSource : uint8_t
     {
         IRQ_EXTERNAL = 1 << 0,
@@ -60,8 +57,8 @@ private:
     uint8_t GetFlag(FLAGS6502 f);
     void    SetFlag(FLAGS6502 f, bool v);
     bool nmi_pending = false;
-    bool irq_pending = false; // one-shot compatibility IRQ
-    uint8_t irq_sources = 0;  // held IRQ lines: mapper/APU/DMC
+    bool irq_pending = false; 
+    uint8_t irq_sources = 0; 
     uint8_t  fetched = 0x00;
     uint16_t temp = 0x0000;
     uint16_t addr_abs = 0x0000;
