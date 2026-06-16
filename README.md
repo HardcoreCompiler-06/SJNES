@@ -61,9 +61,7 @@ SJNES uses Qt for the graphical interface. The interface includes ROM loading, r
 
 > Put your screenshots inside the `images` folder.
 
-```md
 ![SJNES Screenshot](images/sjnes.png)
-```
 
 ## Author
 
