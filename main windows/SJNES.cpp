@@ -66,7 +66,7 @@ static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
     text->setPlainText(
         "Chào mừng đến với SJNES!\n\n"
         "Đây là phần mềm giả lập máy chơi game Nintendo Entertament System\n"
-        "phần mềm được code bởi Nguyễn chiến. "
+        "phần mềm được code bởi Nguyễn chiến và sự hỗ trợ từ Nguyễn Đức An, Phạm Đăng Hoàn. "
         "nếu thấy ok vui lòng cho mình 1 sao ở github nhé=)\n"
         "1. Mở ROM:\n"
         "   Vào File -> Open ROM để chọn file .nes hoặc .zip.\n\n"
@@ -83,10 +83,19 @@ static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
         "   Numpad 7 = Select\n"
         "   Numpad 9 = Start\n\n"
         "4. Phím tắt:\n"
+        "   ctrl + O chọn ROM game\n"
+        "   ctrl + F mở khóa 60FPS\n"
+        "   ctrl + M chế độ âm thanh mono\n"
+        "   ctrl + shift + M chế độ âm thanh stereo\n"
         "   Tab = Tua nhanh\n"
         "   F1 = Save State Mapper 0\n"
         "   F2 = Load State Mapper 0\n"
-        "   F11 = Fullscreen\n\n"
+        "   F11 = Fullscreen\n"
+        "   ctrl + W = xem sóng nes\n"
+        "   alt + 5 = xem sóng sunsoft 5B\n"
+        "   alt + 6 = xem sóng vrc6\n"
+        "   alt + 7 = xem sóng vrc7\n"
+        "   ctrl + 1 hoặc 2,3,4,5,6 = tắt các âm sóng (hiện chưa hỗ trợ tắt sóng vrc7 và S5B)\n\n"
         "5. Debug:\n"
         "   Menu Debug có Audio Waveform, Mapper Viewer, Sprite Viewer và Audio Channel Debug.\n\n"
         "Lưu ý: SJNES là phần mềm giả lập NES đang trong quá trình phát triển, được thực hiện với mục đích học tập và nghiên cứu.\n"
@@ -122,6 +131,25 @@ SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+
+    ui.actNES->setShortcut(QKeySequence("Ctrl+W"));
+    ui.actNES->setShortcutContext(Qt::ApplicationShortcut);
+
+    connect(ui.actNES, &QAction::triggered, this, [this]() {
+        if (!nesWaveWindow)
+        {
+            nesWaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::NES, nullptr);
+            nesWaveWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+            connect(nesWaveWindow, &QObject::destroyed, this, [this]() {
+                nesWaveWindow = nullptr;
+                });
+        }
+
+        nesWaveWindow->show();
+        nesWaveWindow->raise();
+        nesWaveWindow->activateWindow();
+        });
 
     connect(ui.actWaveVRC6, &QAction::triggered, this, [this]() {
         if (!vrc6WaveWindow)
@@ -189,10 +217,10 @@ SJNES::SJNES(QWidget* parent)
 
             infoText->setHtml(
                 "<h3>SJNES Emulator</h3>"
-                "<p><b>phiên bản:</b> 1.8</p>"
-                "<p><b>lần đầu phát hành:</b> 9/4/2026</p>"
-                "<p><b>Developer:</b> Nguyễn Quyết Chiến</p>"
-                "<p><b>ngôn ngữ lập trình:</b> C++ / Qt</p>"
+                "<p><b>phiên bản:</b> 1.9</p>"
+                "<p><b>lần đầu phát hành:</b> 16/6/2026</p>"
+                "<p><b>Developer:</b> Nguyễn Quyết Chiến, Nguyễn Dức An, Phạm Đăng Hoàn</p>"
+                "<p><b>ngôn ngữ lập trình:</b> C++ / Qt / C</p>"
                 "<p><b>rom hỗ trợ:</b> .nes, .zip</p>"
                 "<p><b>License:</b> "
                 "<a href='https://github.com/newbie1412-mmb/SJNES/blob/main/LICENSE'>View License</a>"
@@ -933,15 +961,76 @@ void SJNES::runFrame() {
     {
         static QByteArray audio_buffer;
         static double audio_accumulator = 0.0;
-        const float MASTER_VOLUME = 1.8f; // thử 1.5f, 1.8f, 2.0f
-        if (audio_sink != nullptr && audio_sink->bytesFree() < 8192) {
+
+        if (audio_buffer.capacity() < 32768)
+            audio_buffer.reserve(32768);
+
+        const float MASTER_VOLUME = 1.8f;
+        const bool outputAudio = !fastForward && audio_sink != nullptr && audio_device != nullptr;
+
+        const bool needWaveDebug =
+            (nesWaveWindow && nesWaveWindow->isVisible()) ||
+            (vrc6WaveWindow && vrc6WaveWindow->isVisible()) ||
+            (vrc7WaveWindow && vrc7WaveWindow->isVisible()) ||
+            (s5bWaveWindow && s5bWaveWindow->isVisible());
+
+        auto pushWaveDebugIfNeeded = [&]() {
+            if (!needWaveDebug)
+                return;
+
+            AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
+
+            if (nes_bus.cart && nes_bus.cart->pMapper)
+            {
+                if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
+                {
+                    m85->GetVrc7DebugChannels(
+                        dbg.vrc7Wave1,
+                        dbg.vrc7Wave2,
+                        dbg.vrc7Wave3,
+                        dbg.vrc7Wave4,
+                        dbg.vrc7Wave5,
+                        dbg.vrc7Wave6
+                    );
+                }
+                else if (auto* m69 = dynamic_cast<Mapper_069*>(nes_bus.cart->pMapper.get()))
+                {
+                    m69->GetExpansionDebugChannels(
+                        dbg.s5bToneA,
+                        dbg.s5bToneB,
+                        dbg.s5bToneC
+                    );
+                }
+                else
+                {
+                    nes_bus.cart->pMapper->GetExpansionDebugChannels(
+                        dbg.vrc6Pulse1,
+                        dbg.vrc6Pulse2,
+                        dbg.vrc6Saw
+                    );
+                }
+            }
+
+            if (nesWaveWindow && nesWaveWindow->isVisible())
+                nesWaveWindow->pushChannels(dbg);
+
+            if (vrc6WaveWindow && vrc6WaveWindow->isVisible())
+                vrc6WaveWindow->pushChannels(dbg);
+
+            if (vrc7WaveWindow && vrc7WaveWindow->isVisible())
+                vrc7WaveWindow->pushChannels(dbg);
+
+            if (s5bWaveWindow && s5bWaveWindow->isVisible())
+                s5bWaveWindow->pushChannels(dbg);
+            };
+
+        if (outputAudio && audio_sink->bytesFree() < 8192) {
             return;
         }
 
-        const int PPU_CYCLES_PER_FRAME = fastForward ? (89342 * fastForwardMultiplier) : 89342;
+        const int PPU_CYCLES_PER_FRAME = 89342;
 
         for (int i = 0; i < PPU_CYCLES_PER_FRAME; i++) {
-
             nes_bus.ppu->Step();
 
             if (system_clock_counter % 3 == 0) {
@@ -989,47 +1078,7 @@ void SJNES::runFrame() {
                             exp = nes_bus.cart->pMapper->GetExpansionAudio();
                         }
 
-                        AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
-
-                        if (nes_bus.cart && nes_bus.cart->pMapper)
-                        {
-                            if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
-                            {
-                                m85->GetVrc7DebugChannels(
-                                    dbg.vrc7Wave1,
-                                    dbg.vrc7Wave2,
-                                    dbg.vrc7Wave3,
-                                    dbg.vrc7Wave4,
-                                    dbg.vrc7Wave5,
-                                    dbg.vrc7Wave6
-                                );
-                            }
-                            else if (auto* m69 = dynamic_cast<Mapper_069*>(nes_bus.cart->pMapper.get()))
-                            {
-                                m69->GetExpansionDebugChannels(
-                                    dbg.s5bToneA,
-                                    dbg.s5bToneB,
-                                    dbg.s5bToneC
-                                );
-                            }
-                            else
-                            {
-                                nes_bus.cart->pMapper->GetExpansionDebugChannels(
-                                    dbg.vrc6Pulse1,
-                                    dbg.vrc6Pulse2,
-                                    dbg.vrc6Saw
-                                );
-                            }
-                        }
-
-                        if (vrc6WaveWindow && vrc6WaveWindow->isVisible())
-                            vrc6WaveWindow->pushChannels(dbg);
-
-                        if (vrc7WaveWindow && vrc7WaveWindow->isVisible())
-                            vrc7WaveWindow->pushChannels(dbg);
-
-                        if (s5bWaveWindow && s5bWaveWindow->isVisible())
-                            s5bWaveWindow->pushChannels(dbg);
+                        pushWaveDebugIfNeeded();
 
                         left += exp;
                         right += exp;
@@ -1050,53 +1099,7 @@ void SJNES::runFrame() {
                             exp = nes_bus.cart->pMapper->GetExpansionAudio();
                         }
 
-                        AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
-
-                        if (nes_bus.cart && nes_bus.cart->pMapper)
-                        {
-                            if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
-                            {
-                                m85->GetVrc7DebugChannels(
-                                    dbg.vrc7Wave1,
-                                    dbg.vrc7Wave2,
-                                    dbg.vrc7Wave3,
-                                    dbg.vrc7Wave4,
-                                    dbg.vrc7Wave5,
-                                    dbg.vrc7Wave6
-                                );
-                            }
-                            else if (auto* m69 = dynamic_cast<Mapper_069*>(nes_bus.cart->pMapper.get()))
-                            {
-                                m69->GetExpansionDebugChannels(
-                                    dbg.s5bToneA,
-                                    dbg.s5bToneB,
-                                    dbg.s5bToneC
-                                );
-                            }
-                            else
-                            {
-                                nes_bus.cart->pMapper->GetExpansionDebugChannels(
-                                    dbg.vrc6Pulse1,
-                                    dbg.vrc6Pulse2,
-                                    dbg.vrc6Saw
-                                );
-                            }
-                        }
-
-                        if (vrc6WaveWindow && vrc6WaveWindow->isVisible())
-                        {
-                            vrc6WaveWindow->pushChannels(dbg);
-                        }
-
-                        if (vrc7WaveWindow && vrc7WaveWindow->isVisible())
-                        {
-                            vrc7WaveWindow->pushChannels(dbg);
-                        }
-
-                        if (s5bWaveWindow && s5bWaveWindow->isVisible())
-                        {
-                            s5bWaveWindow->pushChannels(dbg);
-                        }
+                        pushWaveDebugIfNeeded();
 
                         sample += exp;
 
@@ -1163,24 +1166,20 @@ void SJNES::runFrame() {
 
         QImage frameImage = nes_bus.ppu->GetScreen();
 
-        // GAME FPS: frame hình có thay đổi thật hay không
-        if (lastGameFrame.isNull() || frameImage != lastGameFrame)
-        {
-            gameFpsCounter++;
-            lastGameFrame = frameImage.copy();
-        }
+        gameFpsCounter++;
 
-        // VIDEO FPS: số frame thực sự đưa ra màn hình
-        bool shouldOutputVideoFrame = video60fps || (videoFrameCounter % 2 == 0);
+        bool shouldOutputVideoFrame = video60fps || ((videoFrameCounter & 1) == 0);
 
         if (shouldOutputVideoFrame)
         {
+            QImage frameImage = nes_bus.ppu->GetScreen();
+
             videoFpsCounter++;
-            ui.gameScreen->setFrame(frameImage);
+            ui.gameScreen->setFrame(frameImage.copy());
         }
 
         // Cập nhật FPS mỗi 1 giây
-        const int FPS_UPDATE_MS = 250; // 250ms = cập nhật nhanh hơn
+        const int FPS_UPDATE_MS = 500;
 
         if (fpsTimer.elapsed() >= FPS_UPDATE_MS)
         {
@@ -1628,35 +1627,39 @@ bool SJNES::loadStateMapper0(const QString& path)
 }
 void SJNES::closeEvent(QCloseEvent* event)
 {
-    // Dừng giả lập trước
     if (timer)
         timer->stop();
 
-    // Đóng cửa sổ Audio Waveform
     if (vrc6WaveWindow)
-        vrc6WaveWindow->clearSamples();
+    {
+        vrc6WaveWindow->close();
+        vrc6WaveWindow = nullptr;
+    }
 
     if (vrc7WaveWindow)
-        vrc7WaveWindow->clearSamples();
+    {
+        vrc7WaveWindow->close();
+        vrc7WaveWindow = nullptr;
+    }
 
     if (s5bWaveWindow)
-        s5bWaveWindow->clearSamples();
+    {
+        s5bWaveWindow->close();
+        s5bWaveWindow = nullptr;
+    }
 
-    // Đóng cửa sổ Mapper Viewer
     if (mapperViewerWindow)
     {
         mapperViewerWindow->close();
         mapperViewerWindow = nullptr;
     }
 
-    // Đóng cửa sổ Sprite Viewer
     if (spriteViewerWindow)
     {
         spriteViewerWindow->close();
         spriteViewerWindow = nullptr;
     }
 
-    // Đóng Console Log riêng
     if (ui.txtConsole)
     {
         ui.txtConsole->close();

@@ -15,6 +15,7 @@ class AudioWaveWindow : public QOpenGLWidget
 public:
     enum class WaveMode
     {
+        NES,
         VRC6,
         VRC7,
         S5B

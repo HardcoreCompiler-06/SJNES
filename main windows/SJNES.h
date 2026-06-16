@@ -72,6 +72,7 @@ private:
     bool is_stereo = true;
     //filter
     bool pixelPerfectMode = false;
+    AudioWaveWindow* nesWaveWindow = nullptr;
     AudioWaveWindow* vrc6WaveWindow = nullptr;
     AudioWaveWindow* vrc7WaveWindow = nullptr;
     AudioWaveWindow* s5bWaveWindow = nullptr;

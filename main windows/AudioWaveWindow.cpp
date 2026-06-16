@@ -98,8 +98,21 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
     }
     else
     {
-        resize(1100, 780);
-        setMinimumSize(900, 700);
+        if (mode == WaveMode::NES)
+        {
+            resize(1100, 560);
+            setMinimumSize(900, 500);
+        }
+        else if (mode == WaveMode::VRC7)
+        {
+            resize(1100, 720);
+            setMinimumSize(900, 620);
+        }
+        else
+        {
+            resize(1100, 780);
+            setMinimumSize(900, 700);
+        }
     }
 
     QSurfaceFormat fmt;
@@ -114,19 +127,23 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
     names[3] = "Noise";
     names[4] = "DMC";
 
-    if (mode == WaveMode::VRC6)
+    if (mode == WaveMode::NES)
+    {
+        setWindowTitle("NES 5 Channels Waveform Debug");
+        activeChannelCount = 5;
+    }
+    else if (mode == WaveMode::VRC6)
     {
         setWindowTitle("NES + VRC6 Waveform Debug");
         activeChannelCount = 8;
+
         names[5] = "VRC6 Pulse 1";
         names[6] = "VRC6 Pulse 2";
         names[7] = "VRC6 Saw";
     }
     else if (mode == WaveMode::VRC7)
     {
-        setWindowTitle("VRC7 Waveform Debug");
-
-        // VRC7 mode: chỉ hiện 6 kênh VRC7, bỏ 5 sóng NES
+        setWindowTitle("VRC7 6 Channels Waveform Debug");
         activeChannelCount = 6;
 
         names[0] = "VRC7 CH 1";
@@ -140,6 +157,7 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
     {
         setWindowTitle("NES + Sunsoft 5B Waveform Debug");
         activeChannelCount = 8;
+
         names[5] = "S5B Tone A";
         names[6] = "S5B Tone B";
         names[7] = "S5B Tone C";
@@ -161,7 +179,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
 
     if (mode == WaveMode::VRC7)
     {
-        // VRC7 mode: bỏ 5 kênh NES, đưa 6 kênh VRC7 lên 6 dòng đầu
+        // VRC7-only: 6 kênh VRC7 nằm ở dòng 0..5
         values[0] = ch.vrc7Wave1;
         values[1] = ch.vrc7Wave2;
         values[2] = ch.vrc7Wave3;
@@ -171,7 +189,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
     }
     else
     {
-        // VRC6/S5B mode: vẫn giữ 5 kênh NES ở trên
+        // NES / VRC6 / S5B đều có 5 kênh NES ở dòng 0..4
         values[0] = ch.pulse1;
         values[1] = ch.pulse2;
         values[2] = ch.triangle;
@@ -196,26 +214,49 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
     {
         float v = std::clamp(values[i], -1.0f, 1.0f);
 
-        if (mode != WaveMode::VRC7 && (i == 3 || i == 4)) { v *= 1.6f; v = std::clamp(v, -1.0f, 1.0f); }
-
-        if (mode == WaveMode::VRC6)
+        if (mode != WaveMode::VRC7 && (i == 3 || i == 4))
         {
-            if (i == 5 || i == 6) { v *= 1.4f; v = std::clamp(v, -1.0f, 1.0f); }
-            if (i == 7)           { v *= 1.65f; v = std::clamp(v, -1.0f, 1.0f); }
-        }
-        if (mode == WaveMode::VRC7)
-        {
-            // VRC7 only: giảm scale để CH3/CH4 không bị kịch đỉnh
-            float vrc7Scale = 18.0f;
-
-            // CH3/CH4 thường mạnh hơn, giảm riêng một chút
-            if (i == 2 || i == 3)
-                vrc7Scale = 14.0f;
-
-            v *= vrc7Scale;
+            v *= 1.6f;
             v = std::clamp(v, -1.0f, 1.0f);
         }
-        if (mode == WaveMode::S5B  && i >= 5) { v *= 1.4f;  v = std::clamp(v, -1.0f, 1.0f); }
+
+        // VRC6: dòng 5/6 là pulse, dòng 7 là saw
+        if (mode == WaveMode::VRC6)
+        {
+            if (i == 5 || i == 6)
+            {
+                v *= 1.4f;
+                v = std::clamp(v, -1.0f, 1.0f);
+            }
+
+            if (i == 7)
+            {
+                v *= 1.65f;
+                v = std::clamp(v, -1.0f, 1.0f);
+            }
+        }
+
+        // VRC7-only: 6 kênh nằm ở dòng 0..5
+        if (mode == WaveMode::VRC7)
+        {
+            float vrc7Scale = 7.0f;
+
+            // CH3/CH4 dễ kịch đầu nên giảm riêng
+            if (i == 2 || i == 3)
+                vrc7Scale = 5.5f;
+
+            v *= vrc7Scale;
+
+            // chừa headroom để không đập sát mép trên/dưới
+            v = std::clamp(v, -0.95f, 0.95f);
+        }
+
+        // S5B: dòng 5..7
+        if (mode == WaveMode::S5B && i >= 5)
+        {
+            v *= 1.4f;
+            v = std::clamp(v, -1.0f, 1.0f);
+        }
 
         buffers[i].push_back(v);
 
@@ -388,18 +429,15 @@ void AudioWaveWindow::paintGL()
         float triggerLevel = (minV + maxV) * 0.5f;
 
         // --- Tìm điểm bắt đầu bằng trigger ---
-        float fStart = float(n - visibleSamples); // fallback
+        float fStart = float(n - visibleSamples); 
 
         bool isNoiseDMC = (mode != WaveMode::VRC7 && (c == 3 || c == 4));
         bool isVrc6Saw = (mode == WaveMode::VRC6 && c == 7);
 
-        // Tất cả đều có trigger, trừ Noise và DMC
         if (range > 0.02f && !isNoiseDMC)
         {
             if (isVrc6Saw)
             {
-                // VRC6 Saw: khóa trigger theo cạnh rơi/reset của răng cưa.
-                // Zoom chỉ soft-adaptive ở phần visibleSamples, nên sóng vẫn tự do hơn.
                 int searchStart = n - visibleSamples - 1;
 
                 if (searchStart < 1)
@@ -410,10 +448,8 @@ void AudioWaveWindow::paintGL()
                     float prev = copy[c][i - 1];
                     float cur = copy[c][i];
 
-                    // Saw reset: giá trị tụt mạnh
                     if ((prev - cur) > 0.06f)
                     {
-                        // Đặt điểm reset hơi lệch vào trong màn hình, nhìn ổn định hơn
                         fStart = float(i) - float(visibleSamples) * 0.10f;
                         break;
                     }
@@ -442,18 +478,17 @@ void AudioWaveWindow::paintGL()
 
         fStart = std::clamp(fStart, 0.0f, float(n - visibleSamples - 2));
 
-        // --- Amp ---
         float amp = panelH * 0.45f;
 
         if (mode == WaveMode::VRC7)
         {
-            // Chỉ còn 6 sóng VRC7 nên cho biên độ hiển thị to hơn một chút
-            amp = panelH * 0.50f;
+            amp = panelH * 1.0f;
         }
         else
         {
-            if (c == 0 || c == 1)   amp = panelH * 0.48f;
-            if (c == 3 || c == 4)   amp = panelH * 0.42f;
+            if (c == 0 || c == 1)   amp = panelH * 0.36f; 
+            if (c == 2)             amp = panelH * 0.36f; 
+            if (c == 3 || c == 4)   amp = panelH * 0.32f;
             if (c >= 5)
             {
                 if (mode == WaveMode::VRC6)
@@ -462,8 +497,6 @@ void AudioWaveWindow::paintGL()
                     amp = panelH * 0.30f;
             }
         }
-
-        // --- Vẽ với Catmull-Rom interpolation ---
         bool stepWave = (c == 0 || c == 1)
             || (mode == WaveMode::VRC6 && c >= 5)
             || (mode == WaveMode::S5B  && c >= 5);
