@@ -12,7 +12,6 @@
 #include "Mapper_185.h"
 #include "Mapper_009.h"
 #include "Mapper_015.h"
-#include "Mapper_069.h"
 #include "Mapper_001.h"
 #include "Mapper_007.h"
 #include "Mapper_018.h"
@@ -20,9 +19,10 @@
 #include "Mapper_021.h"
 #include "Mapper_024.h"
 #include "Mapper_066.h"
-#include "Mapper_085.h"
 #include "Mapper_071.h"
 #include "Mapper_221.h"
+#include "Mapper_075.h"
+#include "Mapper_079.h"
 
 Cartridge::Cartridge(const std::string& sFileName)
 {
@@ -142,12 +142,12 @@ bool Cartridge::LoadFromData(const std::vector<uint8_t>& romData)
     case 23: pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
     case 24: pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
     case 66: pMapper = std::make_shared<Mapper_066>(nPRGBanks, nCHRBanks); break;
-    case 69: pMapper = std::make_shared<Mapper_069>(nPRGBanks, nCHRBanks); break;
     case 71: pMapper = std::make_shared<Mapper_071>(nPRGBanks, nCHRBanks); break;
-    case 85: pMapper = std::make_shared<Mapper_085>(nPRGBanks, nCHRBanks); break;
     case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
     case 185:pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
     case 221:pMapper = std::make_shared<Mapper_221>(nPRGBanks, nCHRBanks); break;
+    case 75: pMapper = std::make_shared<Mapper_075>(nPRGBanks, nCHRBanks); break;
+    case 79: pMapper = std::make_shared<Mapper_079>(nPRGBanks, nCHRBanks); break;
     default:
         std::cout << "CHƯA HỖ TRỢ MAPPER ID: " << (int)nMapperID << std::endl;
         break;
@@ -184,43 +184,6 @@ bool Cartridge::cpuRead(uint16_t addr, uint8_t& data)
     // PRG RAM / WRAM $6000-$7FFF
     if (addr >= 0x6000 && addr <= 0x7FFF)
     {
-        // Mapper 69: vùng $6000 có thể là PRG-ROM hoặc PRG-RAM
-        if (auto* m69 = dynamic_cast<Mapper_069*>(pMapper.get()))
-        {
-            // Nếu không chọn RAM, cho mapper map PRG-ROM
-            if (!m69->IsPrg6000RamSelected())
-            {
-                uint32_t mapped_addr = 0;
-
-                if (pMapper->cpuMapRead(addr, mapped_addr))
-                {
-                    if (mapped_addr < vPRGMemory.size())
-                        data = vPRGMemory[mapped_addr];
-                    else
-                        data = 0x00;
-
-                    return true;
-                }
-            }
-
-            // Nếu chọn RAM nhưng chưa enable, trả 0
-            if (!m69->IsPrg6000RamEnabled())
-            {
-                data = 0x00;
-                return true;
-            }
-
-            uint32_t ramOffset = addr & 0x1FFF;
-
-            if (ramOffset < PRGRAM.size())
-                data = PRGRAM[ramOffset];
-            else
-                data = 0x00;
-
-            return true;
-        }
-
-        // Các mapper khác giữ logic cũ
         uint32_t ramOffset = addr & 0x1FFF;
 
         if (pMapper)
@@ -257,25 +220,20 @@ bool Cartridge::cpuRead(uint16_t addr, uint8_t& data)
 }
 
 bool Cartridge::cpuWrite(uint16_t addr, uint8_t data) {
-    if (pMapper == nullptr) return false;
+    if (addr >= 0x4100 && addr <= 0x5FFF)
+    {
+        std::cout
+            << "[CPU] WRITE $"
+            << std::hex << addr
+            << " = $" << (int)data
+            << std::endl;
+    }
+
+    if (pMapper == nullptr)
+        return false;
 
     if (addr >= 0x6000 && addr <= 0x7FFF)
     {
-        // Mapper 69: chỉ ghi RAM khi đang chọn RAM và RAM enabled
-        if (auto* m69 = dynamic_cast<Mapper_069*>(pMapper.get()))
-        {
-            if (!m69->IsPrg6000RamSelected() || !m69->IsPrg6000RamEnabled())
-                return true;
-
-            uint32_t ramOffset = addr & 0x1FFF;
-
-            if (ramOffset < PRGRAM.size())
-                PRGRAM[ramOffset] = data;
-
-            return true;
-        }
-
-        // Các mapper khác giữ logic cũ
         uint32_t ramOffset = addr & 0x1FFF;
 
         if (pMapper)
@@ -293,29 +251,13 @@ bool Cartridge::cpuWrite(uint16_t addr, uint8_t data) {
     }
 
     uint32_t mapped_addr = 0;
-    if (pMapper->cpuMapWrite(addr, mapped_addr, data)) {
 
-        if (auto* m15 = dynamic_cast<Mapper_015*>(pMapper.get()))
-        {
-            mirror = m15->IsHorizontalMirror() ? HORIZONTAL : VERTICAL;
-        }
-
-        if (auto* m69 = dynamic_cast<Mapper_069*>(pMapper.get()))
-        {
-            int m = m69->GetMirrorMode();
-
-            if (m == 0)
-                mirror = VERTICAL;
-            else if (m == 1)
-                mirror = HORIZONTAL;
-            else if (m == 2)
-                mirror = ONESCREEN_LO;
-            else if (m == 3)
-                mirror = ONESCREEN_HI;
-        }
-
+    if (pMapper->cpuMapWrite(addr, mapped_addr, data))
+    {
+        mirror = pMapper->mirror();
         return true;
     }
+
     return false;
 }
 
@@ -341,6 +283,7 @@ bool Cartridge::ppuRead(uint16_t addr, uint8_t& data) {
 }
 
 bool Cartridge::ppuWrite(uint16_t addr, uint8_t data) {
+
     uint32_t mapped_addr = 0;
     if (pMapper == nullptr) return false;
 
