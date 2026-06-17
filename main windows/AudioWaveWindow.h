@@ -18,7 +18,8 @@ public:
         NES,
         VRC6,
         VRC7,
-        S5B
+        S5B,
+        MMC5
     };
 
     AudioWaveWindow(WaveMode mode, QWidget* parent = nullptr);

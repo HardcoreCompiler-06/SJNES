@@ -48,6 +48,7 @@ private:
     QElapsedTimer fpsTimer;
     int videoFpsCounter = 0;
     int gameFpsCounter = 0;
+    bool showFpsOverlay = true;
     double videoFpsValue = 0.0;
     double gameFpsValue = 0.0;
     QImage lastGameFrame;
@@ -76,6 +77,7 @@ private:
     AudioWaveWindow* vrc6WaveWindow = nullptr;
     AudioWaveWindow* vrc7WaveWindow = nullptr;
     AudioWaveWindow* s5bWaveWindow = nullptr;
+    AudioWaveWindow* mmc5WaveWindow = nullptr;
     MapperViewerWindow* mapperViewerWindow = nullptr;
     SpriteViewerWindow* spriteViewerWindow = nullptr;
     bool gameFullScreen = false;

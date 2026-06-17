@@ -27,6 +27,10 @@ struct AudioDebugChannels {
     float vrc7Wave4 = 0.0f;
     float vrc7Wave5 = 0.0f;
     float vrc7Wave6 = 0.0f;
+
+    float mmc5Pulse1 = 0.0f;
+    float mmc5Pulse2 = 0.0f;
+    float mmc5PCM = 0.0f;
 };
 class Bus;
 

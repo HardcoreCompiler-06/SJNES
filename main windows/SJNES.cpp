@@ -35,6 +35,7 @@
 #include <QPushButton>
 #include <QTextEdit>
 #include "Mapper_085.h"
+#include "Mapper_005.h"
 #include <QTextBrowser>
 #include <QFileInfo>
 #define SDL_MAIN_HANDLED
@@ -132,6 +133,22 @@ SJNES::SJNES(QWidget* parent)
 {
     ui.setupUi(this);
 
+    connect(ui.actWaveMMC5, &QAction::triggered, this, [this]() {
+        if (!mmc5WaveWindow)
+        {
+            mmc5WaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::MMC5, nullptr);
+            mmc5WaveWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+            connect(mmc5WaveWindow, &QObject::destroyed, this, [this]() {
+                mmc5WaveWindow = nullptr;
+                });
+        }
+
+        mmc5WaveWindow->show();
+        mmc5WaveWindow->raise();
+        mmc5WaveWindow->activateWindow();
+        });
+
     ui.actNES->setShortcut(QKeySequence("Ctrl+W"));
     ui.actNES->setShortcutContext(Qt::ApplicationShortcut);
 
@@ -218,7 +235,8 @@ SJNES::SJNES(QWidget* parent)
             infoText->setHtml(
                 "<h3>SJNES Emulator</h3>"
                 "<p><b>phiên bản:</b> 1.9</p>"
-                "<p><b>lần đầu phát hành:</b> 16/6/2026</p>"
+                "<p><b>lần đầu phát hành:</b> 9/4/2026</p>"
+                "<p><b>ngày cập nhật phiên bản mới nhất:16/6/2026"
                 "<p><b>Developer:</b> Nguyễn Quyết Chiến, Nguyễn Dức An, Phạm Đăng Hoàn</p>"
                 "<p><b>ngôn ngữ lập trình:</b> C++ / Qt / C</p>"
                 "<p><b>rom hỗ trợ:</b> .nes, .zip</p>"
@@ -449,6 +467,7 @@ SJNES::SJNES(QWidget* parent)
     ui.actWaveVRC6->setEnabled(true);
     ui.actWaveVRC7->setEnabled(true);
     ui.actWaveS5B->setEnabled(true);
+    ui.actWaveMMC5->setEnabled(true);
     ui.actMapperViewer->setShortcutContext(Qt::ApplicationShortcut);
     ui.actSpriteViewer->setShortcutContext(Qt::ApplicationShortcut);
 
@@ -490,6 +509,23 @@ SJNES::SJNES(QWidget* parent)
             );
         });
 
+    QShortcut* fpsOverlayShortcut = new QShortcut(QKeySequence("F10"), this);
+    fpsOverlayShortcut->setContext(Qt::ApplicationShortcut);
+
+    connect(fpsOverlayShortcut, &QShortcut::activated, this, [this]() {
+        showFpsOverlay = !showFpsOverlay;
+
+        if (!showFpsOverlay)
+        {
+            ui.gameScreen->setOverlayText("");
+            ui.gameScreen->update();
+            ui.txtConsole->appendPlainText("FPS Overlay: OFF");
+        }
+        else
+        {
+            ui.txtConsole->appendPlainText("FPS Overlay: ON");
+        }
+        });
 
     setFocusPolicy(Qt::StrongFocus);
     ui.gameScreen->setFocusPolicy(Qt::NoFocus);
@@ -522,6 +558,7 @@ SJNES::SJNES(QWidget* parent)
     ui.actWaveVRC6->setShortcut(QKeySequence("Alt+6"));
     ui.actWaveVRC7->setShortcut(QKeySequence("Alt+7"));
     ui.actWaveS5B->setShortcut(QKeySequence("Alt+5"));   
+    ui.actWaveMMC5->setShortcut(QKeySequence("Alt+8"));
     addAppShortcut(QKeySequence("Ctrl+O"), ui.actOpenROM);
     addAppShortcut(QKeySequence("Ctrl+R"), ui.actReset);
     addAppShortcut(QKeySequence("Space"), ui.actPause);
@@ -972,7 +1009,8 @@ void SJNES::runFrame() {
             (nesWaveWindow && nesWaveWindow->isVisible()) ||
             (vrc6WaveWindow && vrc6WaveWindow->isVisible()) ||
             (vrc7WaveWindow && vrc7WaveWindow->isVisible()) ||
-            (s5bWaveWindow && s5bWaveWindow->isVisible());
+            (s5bWaveWindow && s5bWaveWindow->isVisible())||
+            (mmc5WaveWindow && mmc5WaveWindow->isVisible());
 
         auto pushWaveDebugIfNeeded = [&]() {
             if (!needWaveDebug)
@@ -982,7 +1020,15 @@ void SJNES::runFrame() {
 
             if (nes_bus.cart && nes_bus.cart->pMapper)
             {
-                if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
+                if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
+                {
+                    mmc5->GetMMC5DebugChannels(
+                        dbg.mmc5Pulse1,
+                        dbg.mmc5Pulse2,
+                        dbg.mmc5PCM
+                    );
+                }
+                else if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
                 {
                     m85->GetVrc7DebugChannels(
                         dbg.vrc7Wave1,
@@ -1022,6 +1068,9 @@ void SJNES::runFrame() {
 
             if (s5bWaveWindow && s5bWaveWindow->isVisible())
                 s5bWaveWindow->pushChannels(dbg);
+
+            if (mmc5WaveWindow && mmc5WaveWindow->isVisible())
+                mmc5WaveWindow->pushChannels(dbg);
             };
 
         if (outputAudio && audio_sink->bytesFree() < 8192) {
@@ -1063,6 +1112,15 @@ void SJNES::runFrame() {
                 }
 
                 nes_bus.n_apu.Step();
+
+                // MMC5 audio chạy mỗi CPU cycle
+                if (nes_bus.cart && nes_bus.cart->pMapper)
+                {
+                    if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
+                    {
+                        mmc5->ClockAudio();
+                    }
+                }
 
                 audio_accumulator += 44100.0 / 1789773.0;
                 if (audio_accumulator >= 1.0) {
@@ -1126,17 +1184,18 @@ void SJNES::runFrame() {
         {
             if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr)
             {
-                nes_bus.cart->pMapper->irqStep(); {
-                    if (nes_bus.cart->pMapper->irqState())
-                    {
-                        nes_cpu.SetIrqSource(CPU6502::IRQ_EXTERNAL);
-                    }
-                    else
-                    {
-                        nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
-                    }
+                nes_bus.cart->pMapper->irqStep();
+
+                if (nes_bus.cart->pMapper->irqState())
+                {
+                    nes_cpu.SetIrqSource(CPU6502::IRQ_EXTERNAL);
+                }
+                else
+                {
+                    nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
                 }
             }
+
             if (nes_bus.dma_transfer)
             {
                 if (dma_dummy_counter < 512)
@@ -1152,6 +1211,15 @@ void SJNES::runFrame() {
             else
             {
                 nes_cpu.clock();
+            }
+
+            // MMC5 audio chạy theo extra CPU cycle
+            if (nes_bus.cart && nes_bus.cart->pMapper)
+            {
+                if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
+                {
+                    mmc5->ClockAudio();
+                }
             }
         }
 
@@ -1192,11 +1260,18 @@ void SJNES::runFrame() {
             gameFpsCounter = 0;
             fpsTimer.restart();
 
-            ui.gameScreen->setOverlayText(
-                QString("VIDEO %1 FPS\nGAME %2 FPS")
-                .arg(videoFpsValue, 0, 'f', 1)
-                .arg(gameFpsValue, 0, 'f', 1)
-            );
+            if (showFpsOverlay)
+            {
+                ui.gameScreen->setOverlayText(
+                    QString("VIDEO %1 FPS\nGAME %2 FPS")
+                    .arg(videoFpsValue, 0, 'f', 1)
+                    .arg(gameFpsValue, 0, 'f', 1)
+                );
+            }
+            else
+            {
+                ui.gameScreen->setOverlayText("");
+            }
         }
         videoFrameCounter++;
         gLogBuffer.clear();

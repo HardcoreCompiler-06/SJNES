@@ -3,7 +3,6 @@
 #include <vector>
 #include <string>
 #include <memory>
-// Kéo Mapper vào để hiểu MIRROR là gì
 #include "Mapper.h"
 
 class Cartridge {
@@ -35,7 +34,10 @@ public:
     uint8_t nCHRBanks = 0;
 
     std::shared_ptr<Mapper> pMapper;
-
+    Mapper* GetMapper()
+    {
+        return pMapper.get();
+    }
 private:
     bool bImageValid = false;
 };

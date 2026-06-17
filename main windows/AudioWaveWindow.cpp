@@ -162,6 +162,15 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
         names[6] = "S5B Tone B";
         names[7] = "S5B Tone C";
     }
+    else if (mode == WaveMode::MMC5)
+    {
+        setWindowTitle("NES + MMC5 Waveform Debug");
+        activeChannelCount = 8;
+
+        names[5] = "MMC5 Pulse 1";
+        names[6] = "MMC5 Pulse 2";
+        names[7] = "MMC5 PCM";
+    }
 
     for (int i = 0; i < activeChannelCount; i++)
         buffers[i].reserve(MAX_SAMPLES);
@@ -207,6 +216,12 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             values[5] = ch.s5bToneA;
             values[6] = ch.s5bToneB;
             values[7] = ch.s5bToneC;
+        }
+        else if (mode == WaveMode::MMC5)
+        {
+            values[5] = ch.mmc5Pulse1;
+            values[6] = ch.mmc5Pulse2;
+            values[7] = ch.mmc5PCM;
         }
     }
 
@@ -406,6 +421,10 @@ void AudioWaveWindow::paintGL()
             {
                 visibleSamples = DISPLAY_SAMPLES / 3;
             }
+            else if (mode == WaveMode::MMC5)
+            {
+                visibleSamples = DISPLAY_SAMPLES / 3;
+            }
             else if (mode == WaveMode::VRC7)
             {
                 visibleSamples = DISPLAY_SAMPLES / 2;
@@ -495,11 +514,14 @@ void AudioWaveWindow::paintGL()
                     amp = (c == 7) ? panelH * 0.58f : panelH * 0.48f;
                 else if (mode == WaveMode::S5B)
                     amp = panelH * 0.30f;
+                else if (mode == WaveMode::MMC5)
+                    amp = (c == 7) ? panelH * 0.36f : panelH * 0.44f;
             }
         }
         bool stepWave = (c == 0 || c == 1)
             || (mode == WaveMode::VRC6 && c >= 5)
-            || (mode == WaveMode::S5B  && c >= 5);
+            || (mode == WaveMode::S5B  && c >= 5)
+            || (mode == WaveMode::MMC5 && (c == 5 || c == 6));;
 
         QPen pen(CHANNEL_COLORS[c]);
         if (mode == WaveMode::VRC7)

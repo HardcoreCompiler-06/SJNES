@@ -76,6 +76,8 @@
      <addaction name="actWaveVRC6"/>
      <addaction name="actWaveVRC7"/>
      <addaction name="actWaveS5B"/>
+     <addaction name="actNES"/>
+     <addaction name="actWaveMMC5"/>
     </widget>
     <addaction name="menuAudio_Waveform"/>
     <addaction name="actMapperViewer"/>
@@ -322,6 +324,16 @@
   <action name="actWaveS5B">
    <property name="text">
     <string>S5B</string>
+   </property>
+  </action>
+  <action name="actNES">
+   <property name="text">
+    <string>NES</string>
+   </property>
+  </action>
+  <action name="actWaveMMC5">
+   <property name="text">
+    <string>MMC5</string>
    </property>
   </action>
  </widget>
