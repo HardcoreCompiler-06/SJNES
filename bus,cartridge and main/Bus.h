@@ -131,27 +131,12 @@ public:
     // =========================================================
     // HÀM CLOCK ĐIỀU PHỐI NHỊP CPU/PPU VÀ DMA CHUẨN XÁC
     // =========================================================
+    // Trong file Bus.h, sửa lại hàm clock()
     void clock() {
-        if (ppu != nullptr) ppu->Step();
-
+        // 1. CPU xử lý trước
         if (system_clock_counter % 3 == 0) {
             if (dma_transfer) {
-                if (dma_dummy) {
-                    if (system_clock_counter % 2 == 1) dma_dummy = false;
-                }
-                else {
-                    if (system_clock_counter % 2 == 0) {
-                        dma_data = cpuRead(((uint16_t)dma_page << 8) | dma_addr);
-                    }
-                    else {
-                        if (ppu != nullptr) ppu->OAM[dma_addr] = dma_data;
-                        dma_addr++;
-                        if (dma_addr == 0x00) {
-                            dma_transfer = false;
-                            dma_dummy = true;
-                        }
-                    }
-                }
+                // ... (Giữ nguyên logic DMA cũ của bạn)
             }
             else {
                 if (cpu != nullptr) {
@@ -159,15 +144,33 @@ public:
                     n_apu.Step();
                 }
             }
+
+            // 2. Mapper đếm nhịp
+            if (cart != nullptr && cart->pMapper != nullptr) {
+                cart->pMapper->clock();
+            }
         }
 
+        // 3. PPU chạy sau cùng để đảm bảo đồng bộ trạng thái
+        if (ppu != nullptr) ppu->Step();
+
+        // [Fix IRQ]: Đưa về dạng Level-Triggered chuẩn
+        // Xử lý IRQ Level-Triggered:
         if (cart != nullptr && cart->pMapper != nullptr) {
             if (cart->pMapper->irqState()) {
-                cart->pMapper->irqClear();
-                if (cpu != nullptr) cpu->irq();
+                if (cpu != nullptr) {
+                    cpu->SetIrqSource(CPU6502::IRQ_EXTERNAL);
+
+                    // [THÊM MỚI]: Báo cho PPU biết Mapper vừa yêu cầu ngắt.
+                    // Nếu PPU của bạn có hàm đặt cờ update VRAM/Nametable, hãy gọi nó ở đây.
+                    // Ví dụ: if (ppu != nullptr) ppu->ForceUpdate(); 
+                }
+            }
+            else {
+                if (cpu != nullptr) cpu->ClearIrqSource(CPU6502::IRQ_EXTERNAL);
             }
         }
 
         system_clock_counter++;
-    }
-};
+        }
+    };
