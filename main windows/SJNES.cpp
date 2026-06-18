@@ -36,6 +36,7 @@
 #include <QTextEdit>
 #include "Mapper_085.h"
 #include "Mapper_005.h"
+#include "Mapper_019.h"
 #include <QTextBrowser>
 #include <QFileInfo>
 #define SDL_MAIN_HANDLED
@@ -132,6 +133,25 @@ SJNES::SJNES(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
+    connect(ui.actWaveN163, &QAction::triggered, this, [this]() {
+    if (!n163WaveWindow)
+    {
+        n163WaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::N163, this);
+
+        // Quan trọng: có parent nhưng vẫn là cửa sổ riêng
+        n163WaveWindow->setWindowFlag(Qt::Window, true);
+
+        n163WaveWindow->setAttribute(Qt::WA_DeleteOnClose);
+
+        connect(n163WaveWindow, &QObject::destroyed, this, [this]() {
+            n163WaveWindow = nullptr;
+        });
+    }
+
+    n163WaveWindow->show();
+    n163WaveWindow->raise();
+    n163WaveWindow->activateWindow();
+});
 
     connect(ui.actWaveMMC5, &QAction::triggered, this, [this]() {
         if (!mmc5WaveWindow)
@@ -559,6 +579,8 @@ SJNES::SJNES(QWidget* parent)
     ui.actWaveVRC7->setShortcut(QKeySequence("Alt+7"));
     ui.actWaveS5B->setShortcut(QKeySequence("Alt+5"));   
     ui.actWaveMMC5->setShortcut(QKeySequence("Alt+8"));
+    ui.actWaveN163->setShortcut(QKeySequence("Alt+9"));
+    ui.actWaveN163->setShortcutContext(Qt::ApplicationShortcut);
     addAppShortcut(QKeySequence("Ctrl+O"), ui.actOpenROM);
     addAppShortcut(QKeySequence("Ctrl+R"), ui.actReset);
     addAppShortcut(QKeySequence("Space"), ui.actPause);
@@ -1009,8 +1031,9 @@ void SJNES::runFrame() {
             (nesWaveWindow && nesWaveWindow->isVisible()) ||
             (vrc6WaveWindow && vrc6WaveWindow->isVisible()) ||
             (vrc7WaveWindow && vrc7WaveWindow->isVisible()) ||
-            (s5bWaveWindow && s5bWaveWindow->isVisible())||
-            (mmc5WaveWindow && mmc5WaveWindow->isVisible());
+            (s5bWaveWindow && s5bWaveWindow->isVisible()) ||
+            (mmc5WaveWindow && mmc5WaveWindow->isVisible()) ||
+            (n163WaveWindow && n163WaveWindow->isVisible());
 
         auto pushWaveDebugIfNeeded = [&]() {
             if (!needWaveDebug)
@@ -1020,7 +1043,20 @@ void SJNES::runFrame() {
 
             if (nes_bus.cart && nes_bus.cart->pMapper)
             {
-                if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
+                if (auto* m19 = dynamic_cast<Mapper_019*>(nes_bus.cart->pMapper.get()))
+                {
+                    m19->GetN163DebugChannels(
+                        dbg.n163Wave1,
+                        dbg.n163Wave2,
+                        dbg.n163Wave3,
+                        dbg.n163Wave4,
+                        dbg.n163Wave5,
+                        dbg.n163Wave6,
+                        dbg.n163Wave7,
+                        dbg.n163Wave8
+                    );
+                }
+                else if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
                 {
                     mmc5->GetMMC5DebugChannels(
                         dbg.mmc5Pulse1,
@@ -1056,6 +1092,8 @@ void SJNES::runFrame() {
                     );
                 }
             }
+            if (n163WaveWindow && n163WaveWindow->isVisible())
+                n163WaveWindow->pushChannels(dbg);
 
             if (nesWaveWindow && nesWaveWindow->isVisible())
                 nesWaveWindow->pushChannels(dbg);
@@ -1704,7 +1742,17 @@ void SJNES::closeEvent(QCloseEvent* event)
 {
     if (timer)
         timer->stop();
+    if (nesWaveWindow)
+    {
+        nesWaveWindow->close();
+        nesWaveWindow = nullptr;
+    }
 
+    if (mmc5WaveWindow)
+    {
+        mmc5WaveWindow->close();
+        mmc5WaveWindow = nullptr;
+    }
     if (vrc6WaveWindow)
     {
         vrc6WaveWindow->close();

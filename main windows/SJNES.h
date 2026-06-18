@@ -78,6 +78,7 @@ private:
     AudioWaveWindow* vrc7WaveWindow = nullptr;
     AudioWaveWindow* s5bWaveWindow = nullptr;
     AudioWaveWindow* mmc5WaveWindow = nullptr;
+    AudioWaveWindow* n163WaveWindow = nullptr;
     MapperViewerWindow* mapperViewerWindow = nullptr;
     SpriteViewerWindow* spriteViewerWindow = nullptr;
     bool gameFullScreen = false;
