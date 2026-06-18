@@ -4,27 +4,28 @@
 #include <cstring>
 #include <iterator>
 #include "Mapper_000.h"
+#include "Mapper_001.h"
 #include "Mapper_002.h"
 #include "Mapper_003.h"
 #include "Mapper_004.h"
 #include "Mapper_005.h"
-#include "Mapper_087.h"
-#include "Mapper_185.h"
+#include "Mapper_007.h"
 #include "Mapper_009.h"
 #include "Mapper_015.h"
-#include "Mapper_001.h"
-#include "Mapper_007.h"
 #include "Mapper_018.h"
-#include "Mapper_023.h"
+#include "Mapper_019.h"
 #include "Mapper_021.h"
+#include "Mapper_023.h"
 #include "Mapper_024.h"
 #include "Mapper_066.h"
-#include "Mapper_071.h"
-#include "Mapper_221.h"
-#include "Mapper_085.h"
 #include "Mapper_069.h"
+#include "Mapper_071.h"
 #include "Mapper_075.h"
 #include "Mapper_079.h"
+#include "Mapper_085.h"
+#include "Mapper_087.h"
+#include "Mapper_185.h"
+#include "Mapper_221.h"
 
 Cartridge::Cartridge(const std::string& sFileName)
 {
@@ -127,31 +128,38 @@ bool Cartridge::LoadFromData(const std::vector<uint8_t>& romData)
         offset += chrSize;
     }
 
+    // [FIX MAPPER 19]: Cấp thêm 2KB ảo vào cuối mảng CHR để làm CIRAM nội bộ cho Namco 163
+    if (nMapperID == 19)
+    {
+        vCHRMemory.resize(vCHRMemory.size() + 2048, 0x00);
+    }
+
     PRGRAM.resize(64 * 1024, 0x00);
 
     switch (nMapperID) {
-    case 0:  pMapper = std::make_shared<Mapper_000>(nPRGBanks, nCHRBanks); break;
-    case 1:  pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks); break;
-    case 2:  pMapper = std::make_shared<Mapper_002>(nPRGBanks, nCHRBanks); break;
-    case 3:  pMapper = std::make_shared<Mapper_003>(nPRGBanks, nCHRBanks); break;
-    case 4:  pMapper = std::make_shared<Mapper_004>(nPRGBanks, nCHRBanks); break;
-    case 5:  pMapper = std::make_shared<Mapper_005>(nPRGBanks, nCHRBanks); break;
-    case 7:  pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks); break;
-    case 9:  pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks); break;
-    case 15: pMapper = std::make_shared<Mapper_015>(nPRGBanks, nCHRBanks); break;
-    case 18: pMapper = std::make_shared<Mapper_018>(nPRGBanks, nCHRBanks); break;
-    case 21: pMapper = std::make_shared<Mapper_021>(nPRGBanks, nCHRBanks); break;
-    case 23: pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
-    case 24: pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
-    case 66: pMapper = std::make_shared<Mapper_066>(nPRGBanks, nCHRBanks); break;
-    case 69: pMapper = std::make_shared<Mapper_069>(nPRGBanks, nCHRBanks); break;
-    case 71: pMapper = std::make_shared<Mapper_071>(nPRGBanks, nCHRBanks); break;
-    case 85: pMapper = std::make_shared<Mapper_085>(nPRGBanks, nCHRBanks); break;
-    case 87: pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
-    case 185:pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
-    case 221:pMapper = std::make_shared<Mapper_221>(nPRGBanks, nCHRBanks); break;
-    case 75: pMapper = std::make_shared<Mapper_075>(nPRGBanks, nCHRBanks); break;
-    case 79: pMapper = std::make_shared<Mapper_079>(nPRGBanks, nCHRBanks); break;
+    case 0:   pMapper = std::make_shared<Mapper_000>(nPRGBanks, nCHRBanks); break;
+    case 1:   pMapper = std::make_shared<Mapper_001>(nPRGBanks, nCHRBanks); break;
+    case 2:   pMapper = std::make_shared<Mapper_002>(nPRGBanks, nCHRBanks); break;
+    case 3:   pMapper = std::make_shared<Mapper_003>(nPRGBanks, nCHRBanks); break;
+    case 4:   pMapper = std::make_shared<Mapper_004>(nPRGBanks, nCHRBanks); break;
+    case 5:   pMapper = std::make_shared<Mapper_005>(nPRGBanks, nCHRBanks); break;
+    case 7:   pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks); break;
+    case 9:   pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks); break;
+    case 15:  pMapper = std::make_shared<Mapper_015>(nPRGBanks, nCHRBanks); break;
+    case 18:  pMapper = std::make_shared<Mapper_018>(nPRGBanks, nCHRBanks); break;
+    case 19:  pMapper = std::make_shared<Mapper_019>(nPRGBanks, nCHRBanks); break;
+    case 21:  pMapper = std::make_shared<Mapper_021>(nPRGBanks, nCHRBanks); break;
+    case 23:  pMapper = std::make_shared<Mapper_023>(nPRGBanks, nCHRBanks); break;
+    case 24:  pMapper = std::make_shared<Mapper_024>(nPRGBanks, nCHRBanks); break;
+    case 66:  pMapper = std::make_shared<Mapper_066>(nPRGBanks, nCHRBanks); break;
+    case 69:  pMapper = std::make_shared<Mapper_069>(nPRGBanks, nCHRBanks); break;
+    case 71:  pMapper = std::make_shared<Mapper_071>(nPRGBanks, nCHRBanks); break;
+    case 75:  pMapper = std::make_shared<Mapper_075>(nPRGBanks, nCHRBanks); break;
+    case 79:  pMapper = std::make_shared<Mapper_079>(nPRGBanks, nCHRBanks); break;
+    case 85:  pMapper = std::make_shared<Mapper_085>(nPRGBanks, nCHRBanks); break;
+    case 87:  pMapper = std::make_shared<Mapper_087>(nPRGBanks, nCHRBanks); break;
+    case 185: pMapper = std::make_shared<Mapper_185>(nPRGBanks, nCHRBanks); break;
+    case 221: pMapper = std::make_shared<Mapper_221>(nPRGBanks, nCHRBanks); break;
     default:
         std::cout << "CHƯA HỖ TRỢ MAPPER ID: " << (int)nMapperID << std::endl;
         break;
@@ -176,6 +184,7 @@ bool Cartridge::ImageValid()
 {
     return bImageValid;
 }
+
 // 4 CỔNG GIAO TIẾP VỚI CPU VÀ PPU (Nhờ Mapper phiên dịch địa chỉ)
 
 bool Cartridge::cpuRead(uint16_t addr, uint8_t& data)
@@ -188,8 +197,7 @@ bool Cartridge::cpuRead(uint16_t addr, uint8_t& data)
     // PRG RAM / WRAM $6000-$7FFF
     if (addr >= 0x6000 && addr <= 0x7FFF)
     {
-        // Mapper 69 / Sunsoft 5B:
-        // $6000-$7FFF có thể là PRG-ROM bank hoặc PRG-RAM
+        // Mapper 69 / Sunsoft 5B: $6000-$7FFF có thể là PRG-ROM bank hoặc PRG-RAM
         if (auto* m69 = dynamic_cast<Mapper_069*>(pMapper.get()))
         {
             // Nếu mapper đang chọn ROM ở $6000 thì cho mapper map vào PRG-ROM
@@ -261,15 +269,8 @@ bool Cartridge::cpuRead(uint16_t addr, uint8_t& data)
     return false;
 }
 
-bool Cartridge::cpuWrite(uint16_t addr, uint8_t data) {
-    if (addr >= 0x4100 && addr <= 0x5FFF)
-    {
-        std::cout
-            << "[CPU] WRITE $"
-            << std::hex << addr
-            << " = $" << (int)data
-            << std::endl;
-    }
+bool Cartridge::cpuWrite(uint16_t addr, uint8_t data)
+{
 
     if (pMapper == nullptr)
         return false;
@@ -338,16 +339,20 @@ bool Cartridge::cpuWrite(uint16_t addr, uint8_t data) {
     return false;
 }
 
-bool Cartridge::ppuRead(uint16_t addr, uint8_t& data) {
+bool Cartridge::ppuRead(uint16_t addr, uint8_t& data)
+{
     uint32_t mapped_addr = 0;
 
-    if (pMapper && pMapper->ppuMapRead(addr, mapped_addr)) {
+    if (pMapper && pMapper->ppuMapRead(addr, mapped_addr))
+    {
         // Special marker: mapper wants PPU internal nametable, not CHR ROM
-        if (mapped_addr & 0x80000000) {
+        if (mapped_addr & 0x80000000)
+        {
             return false;
         }
 
-        if (mapped_addr < vCHRMemory.size()) {
+        if (mapped_addr < vCHRMemory.size())
+        {
             data = vCHRMemory[mapped_addr];
             return true;
         }
@@ -359,17 +364,22 @@ bool Cartridge::ppuRead(uint16_t addr, uint8_t& data) {
     return false;
 }
 
-bool Cartridge::ppuWrite(uint16_t addr, uint8_t data) {
-
+bool Cartridge::ppuWrite(uint16_t addr, uint8_t data)
+{
     uint32_t mapped_addr = 0;
-    if (pMapper == nullptr) return false;
 
-    if (pMapper->ppuMapWrite(addr, mapped_addr)) {
-        if (mapped_addr & 0x80000000) {
+    if (pMapper == nullptr)
+        return false;
+
+    if (pMapper->ppuMapWrite(addr, mapped_addr))
+    {
+        if (mapped_addr & 0x80000000)
+        {
             return false;
         }
 
-        if (mapped_addr < vCHRMemory.size()) {
+        if (mapped_addr < vCHRMemory.size())
+        {
             vCHRMemory[mapped_addr] = data;
         }
 
