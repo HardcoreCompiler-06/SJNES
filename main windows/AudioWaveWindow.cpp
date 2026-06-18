@@ -171,7 +171,21 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
         names[6] = "MMC5 Pulse 2";
         names[7] = "MMC5 PCM";
     }
+    else if (mode == WaveMode::N163)
+    {
+        setWindowTitle("Namco 163 Waveform Debug");
 
+        activeChannelCount = 8;
+
+        names[0] = "N163 CH 1";
+        names[1] = "N163 CH 2";
+        names[2] = "N163 CH 3";
+        names[3] = "N163 CH 4";
+        names[4] = "N163 CH 5";
+        names[5] = "N163 CH 6";
+        names[6] = "N163 CH 7";
+        names[7] = "N163 CH 8";
+    }
     for (int i = 0; i < activeChannelCount; i++)
         buffers[i].reserve(MAX_SAMPLES);
 
@@ -185,8 +199,18 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
     QMutexLocker lock(&mutex);
 
     float values[CHANNEL_COUNT]{};
-
-    if (mode == WaveMode::VRC7)
+    if (mode == WaveMode::N163)
+    {
+        values[0] = ch.n163Wave1;
+        values[1] = ch.n163Wave2;
+        values[2] = ch.n163Wave3;
+        values[3] = ch.n163Wave4;
+        values[4] = ch.n163Wave5;
+        values[5] = ch.n163Wave6;
+        values[6] = ch.n163Wave7;
+        values[7] = ch.n163Wave8;
+    }
+    else if (mode == WaveMode::VRC7)
     {
         // VRC7-only: 6 kênh VRC7 nằm ở dòng 0..5
         values[0] = ch.vrc7Wave1;
@@ -266,6 +290,16 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             v = std::clamp(v, -0.95f, 0.95f);
         }
 
+        if (mode == WaveMode::N163)
+        {
+            // N163 raw thường nhỏ, cần phóng lên để nhìn rõ
+            float n163Scale = 6.0f;
+
+            v *= n163Scale;
+            v = std::clamp(v, -0.95f, 0.95f);
+        }
+
+
         // S5B: dòng 5..7
         if (mode == WaveMode::S5B && i >= 5)
         {
@@ -287,6 +321,13 @@ void AudioWaveWindow::clearSamples()
     {
         buffers[i].clear();
         lastVisual[i] = 0.0f;
+
+        n163LastTrigger[i] = 0.0f;
+        n163Period[i] = 0.0f;
+        n163LastBufferSize[i] = 0;
+        n163HasTrigger[i] = false;
+        n163SmoothY[i].clear();
+        n163SmoothValid[i] = false;
     }
 }
 
@@ -341,6 +382,10 @@ void AudioWaveWindow::paintGL()
             // VRC7 mode chỉ có 6 kênh VRC7, cho mỗi sóng to và dễ nhìn hơn
             visibleSamples = DISPLAY_SAMPLES / 2;
         }
+        else if (mode == WaveMode::N163)
+        {
+            visibleSamples = DISPLAY_SAMPLES / 2;
+        }
         else
         {
             // NES Pulse: trigger và zoom vừa phải
@@ -357,7 +402,7 @@ void AudioWaveWindow::paintGL()
         }
 
         // Expansion channels của VRC6/S5B
-        if (mode != WaveMode::VRC7 && c >= 5)
+        if (mode != WaveMode::VRC7 && mode != WaveMode::N163 && c >= 5)
         {
             if (mode == WaveMode::VRC6)
             {
@@ -368,8 +413,7 @@ void AudioWaveWindow::paintGL()
                 }
                 else if (c == 7)
                 {
-                    // VRC6 Saw: giữ trigger bị khóa, nhưng zoom không bị khóa cứng.
-                    // Mặc định để sóng chạy tự nhiên; chỉ tự chỉnh nhẹ khi quá ít/quá nhiều răng.
+                    
                     visibleSamples = DISPLAY_SAMPLES;
 
                     const auto& buf = copy[c];
@@ -398,13 +442,7 @@ void AudioWaveWindow::paintGL()
                     {
                         int period = resetB - resetA;
                         period = std::clamp(period, 8, DISPLAY_SAMPLES * 2);
-
-                        // Soft adaptive:
-                        // - Âm thấp: nếu thấy dưới 4 răng thì nới cửa sổ để đỡ to ngang.
-                        // - Âm cao: nếu thấy trên 9 răng thì thu cửa sổ lại để đỡ dày đặc.
-                        // - Ở giữa thì giữ DISPLAY_SAMPLES để sóng vẫn tự do, không bị cố định quá.
                         float teeth = float(visibleSamples) / float(period);
-
                         if (teeth < 4.0f)
                             visibleSamples = period * 4;
                         else if (teeth > 9.0f)
@@ -450,12 +488,141 @@ void AudioWaveWindow::paintGL()
         // --- Tìm điểm bắt đầu bằng trigger ---
         float fStart = float(n - visibleSamples); 
 
-        bool isNoiseDMC = (mode != WaveMode::VRC7 && (c == 3 || c == 4));
+        bool isNoiseDMC = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && (c == 3 || c == 4));
         bool isVrc6Saw = (mode == WaveMode::VRC6 && c == 7);
 
         if (range > 0.02f && !isNoiseDMC)
         {
-            if (isVrc6Saw)
+            if (mode == WaveMode::N163)
+            {
+                // N163 wavetable có nhiều điểm crossing giống nhau.
+                // Trigger thường sẽ nhảy qua lại giữa các crossing => nhìn như trôi ngang/rung ngang.
+                // Cách này vẫn vẽ sóng thật từ buffer như cũ, nhưng chỉ chọn crossing mạnh và gần phase cũ nhất.
+                const float preTrigger = float(visibleSamples) * 0.10f;
+                const float maxTrigger = float(n) - float(visibleSamples) + preTrigger;
+
+                if (n163LastBufferSize[c] > 0 && n < n163LastBufferSize[c])
+                {
+                    // Buffer vừa bị cắt đầu, index cũ không còn đáng tin.
+                    n163HasTrigger[c] = false;
+                }
+
+                QVector<float> trigIdx;
+                QVector<float> trigSlope;
+                trigIdx.reserve(128);
+                trigSlope.reserve(128);
+
+                int scanStart = std::max(1, n - visibleSamples * 4);
+                int scanEnd = std::min(n - 2, int(maxTrigger));
+
+                float minSlope = std::max(0.0001f, range * 0.08f);
+                float strongestSlope = 0.0f;
+
+                for (int i = scanStart + 1; i <= scanEnd; i++)
+                {
+                    float prev = copy[c][i - 1];
+                    float cur = copy[c][i];
+
+                    if (prev < triggerLevel && cur >= triggerLevel)
+                    {
+                        float slope = cur - prev;
+                        if (slope >= minSlope)
+                        {
+                            float frac = (triggerLevel - prev) / slope;
+                            float idx = float(i - 1) + frac;
+
+                            trigIdx.push_back(idx);
+                            trigSlope.push_back(slope);
+                            strongestSlope = std::max(strongestSlope, slope);
+                        }
+                    }
+                }
+
+                if (!trigIdx.isEmpty())
+                {
+                    float slopeGate = strongestSlope * 0.55f;
+                    float target = maxTrigger;
+
+                    if (n163HasTrigger[c] && n163Period[c] >= 8.0f)
+                    {
+                        // Dự đoán cạnh cùng pha gần vị trí hiển thị hiện tại nhất.
+                        float p = n163Period[c];
+                        float k = std::round((target - n163LastTrigger[c]) / p);
+                        target = n163LastTrigger[c] + k * p;
+
+                        while (target > maxTrigger)
+                            target -= p;
+                        while (target < scanStart && target + p <= maxTrigger)
+                            target += p;
+                    }
+
+                    int best = -1;
+                    float bestScore = 1e30f;
+
+                    for (int i = 0; i < trigIdx.size(); i++)
+                    {
+                        if (trigSlope[i] < slopeGate)
+                            continue;
+
+                        float dist = std::abs(trigIdx[i] - target);
+                        float slopeBonus = trigSlope[i] / std::max(strongestSlope, 0.0001f);
+                        float score = dist - slopeBonus * 4.0f;
+
+                        if (score < bestScore)
+                        {
+                            bestScore = score;
+                            best = i;
+                        }
+                    }
+
+                    if (best < 0)
+                    {
+                        // Nếu gate quá gắt thì lấy crossing gần target nhất.
+                        for (int i = 0; i < trigIdx.size(); i++)
+                        {
+                            float dist = std::abs(trigIdx[i] - target);
+                            if (dist < bestScore)
+                            {
+                                bestScore = dist;
+                                best = i;
+                            }
+                        }
+                    }
+
+                    if (best >= 0)
+                    {
+                        float selected = trigIdx[best];
+
+                        if (n163HasTrigger[c])
+                        {
+                            float diff = selected - n163LastTrigger[c];
+                            float absDiff = std::abs(diff);
+
+                            // Cập nhật period chỉ khi khoảng cách hợp lý, tránh bắt nhầm nửa chu kỳ.
+                            if (absDiff >= 8.0f && absDiff <= float(visibleSamples))
+                            {
+                                float newPeriod = absDiff;
+                                if (n163Period[c] <= 0.0f)
+                                    n163Period[c] = newPeriod;
+                                else
+                                    n163Period[c] = n163Period[c] * 0.85f + newPeriod * 0.15f;
+                            }
+                        }
+
+                        n163LastTrigger[c] = selected;
+                        n163HasTrigger[c] = true;
+                        fStart = selected - preTrigger;
+                    }
+                }
+                else if (n163HasTrigger[c])
+                {
+                    // Không tìm thấy crossing mới thì giữ vị trí phase gần nhất, đừng quay lại auto-scroll.
+                    fStart = n163LastTrigger[c] - float(visibleSamples) * 0.10f;
+                }
+
+                n163LastBufferSize[c] = n;
+            }
+            else if (isVrc6Saw)
             {
                 int searchStart = n - visibleSamples - 1;
 
@@ -503,6 +670,11 @@ void AudioWaveWindow::paintGL()
         {
             amp = panelH * 1.0f;
         }
+        else if (mode == WaveMode::N163)
+        {
+            // Chừa biên để sóng không chạm trên/dưới
+            amp = panelH * 0.42f;
+        }
         else
         {
             if (c == 0 || c == 1)   amp = panelH * 0.36f; 
@@ -518,10 +690,184 @@ void AudioWaveWindow::paintGL()
                     amp = (c == 7) ? panelH * 0.36f : panelH * 0.44f;
             }
         }
+        // N163 ROW-SYNC MODE:
+        // Không vẽ cả đoạn history dài theo thời gian nữa, vì khi biên độ/note thay đổi
+        // thì mép phải là sample mới còn mép trái là sample cũ -> nhìn như cả hàng bị lệch tick.
+        // Ở đây vẫn dùng sóng thật mới nhất, nhưng chỉ lấy MỘT chu kỳ gần trigger hiện tại,
+        // rồi lặp chu kỳ đó trên toàn hàng. Vì vậy toàn bộ hàng cập nhật cùng lúc theo frame.
+        if (mode == WaveMode::N163)
+        {
+            int drawPoints = std::max(2, w * 2);
+
+            QPen n163Pen(CHANNEL_COLORS[c]);
+            n163Pen.setWidthF(1.35f);
+            n163Pen.setCapStyle(Qt::RoundCap);
+            n163Pen.setJoinStyle(Qt::RoundJoin);
+            p.setPen(n163Pen);
+
+            // Tìm các rising crossing đủ mạnh trong vùng gần cuối buffer.
+            QVector<float> idxs;
+            QVector<float> slopes;
+            idxs.reserve(128);
+            slopes.reserve(128);
+
+            int scanStart = std::max(1, n - visibleSamples * 4);
+            int scanEnd = n - 2;
+            float minSlope = std::max(0.0001f, range * 0.08f);
+            float strongestSlope = 0.0f;
+
+            for (int si = scanStart + 1; si <= scanEnd; si++)
+            {
+                float prev = copy[c][si - 1];
+                float cur = copy[c][si];
+
+                if (prev < triggerLevel && cur >= triggerLevel)
+                {
+                    float slope = cur - prev;
+                    if (slope >= minSlope)
+                    {
+                        float frac = (triggerLevel - prev) / slope;
+                        float idx = float(si - 1) + frac;
+                        idxs.push_back(idx);
+                        slopes.push_back(slope);
+                        strongestSlope = std::max(strongestSlope, slope);
+                    }
+                }
+            }
+
+            bool drewN163 = false;
+
+            if (idxs.size() >= 2)
+            {
+                // Ưu tiên cạnh mạnh gần cuối nhất, rồi tìm cạnh cùng kiểu trước nó để lấy period.
+                float slopeGate = strongestSlope * 0.55f;
+
+                int anchor = -1;
+                for (int si = idxs.size() - 1; si >= 0; si--)
+                {
+                    if (slopes[si] >= slopeGate)
+                    {
+                        anchor = si;
+                        break;
+                    }
+                }
+
+                int prevEdge = -1;
+                if (anchor > 0)
+                {
+                    for (int si = anchor - 1; si >= 0; si--)
+                    {
+                        float periodTry = idxs[anchor] - idxs[si];
+                        if (slopes[si] >= slopeGate && periodTry >= 8.0f && periodTry <= float(visibleSamples))
+                        {
+                            prevEdge = si;
+                            break;
+                        }
+                    }
+                }
+
+                if (anchor >= 0 && prevEdge >= 0)
+                {
+                    float cycleEnd = idxs[anchor];
+                    float period = idxs[anchor] - idxs[prevEdge];
+                    float cycleStart = cycleEnd - period;
+
+                    if (cycleStart >= 1.0f && cycleEnd < float(n - 2) && period >= 8.0f)
+                    {
+                        // Giữ zoom giống visibleSamples cũ: số chu kỳ trên màn hình = visibleSamples / period.
+                        float cyclesAcross = float(visibleSamples) / period;
+                        cyclesAcross = std::clamp(cyclesAcross, 1.0f, 24.0f);
+
+                        if (n163SmoothY[c].size() != drawPoints)
+                        {
+                            n163SmoothY[c].resize(drawPoints);
+                            n163SmoothValid[c] = false;
+                        }
+
+                        QPainterPath n163Path;
+
+                        for (int pi = 0; pi < drawPoints; pi++)
+                        {
+                            float t = float(pi) / float(drawPoints - 1);
+                            float phase = std::fmod(t * cyclesAcross, 1.0f);
+                            if (phase < 0.0f)
+                                phase += 1.0f;
+
+                            float fIdx = cycleStart + phase * period;
+                            fIdx = std::clamp(fIdx, 0.0f, float(n - 2));
+
+                            float sample = sampleInterp(copy[c], fIdx);
+                            float yTarget = midY - sample * amp;
+
+                            float y = yTarget;
+                            if (n163SmoothValid[c])
+                            {
+                                // Bám nhanh theo frame, không relax chậm;
+                                // mọi điểm X cập nhật cùng lúc, không lệch tick.
+                                y = n163SmoothY[c][pi] * 0.15f + yTarget * 0.85f;
+                            }
+
+                            n163SmoothY[c][pi] = y;
+
+                            float x = t * float(w);
+                            if (pi == 0) n163Path.moveTo(x, y);
+                            else         n163Path.lineTo(x, y);
+                        }
+
+                        n163SmoothValid[c] = true;
+                        p.drawPath(n163Path);
+                        drewN163 = true;
+                    }
+                }
+            }
+
+            if (drewN163)
+                continue;
+
+            // Không tìm được chu kỳ mới nghĩa là kênh đang tắt / quá nhỏ / đang chuyển note.
+            // ĐỪNG nhảy thẳng về đường giữa. Giữ waveform frame trước và release dần về midY
+            // để cảm giác hết âm mượt hơn, nhưng vẫn không trôi ngang.
+            if (n163SmoothValid[c] && n163SmoothY[c].size() == drawPoints)
+            {
+                QPainterPath releasePath;
+
+                bool stillVisible = false;
+                const float releaseKeep = 0.72f;   // càng cao thì tắt càng chậm
+                const float releaseToCenter = 1.0f - releaseKeep;
+
+                for (int pi = 0; pi < drawPoints; pi++)
+                {
+                    float t = float(pi) / float(drawPoints - 1);
+
+                    float y = n163SmoothY[c][pi] * releaseKeep + float(midY) * releaseToCenter;
+                    n163SmoothY[c][pi] = y;
+
+                    if (std::abs(y - float(midY)) > 0.75f)
+                        stillVisible = true;
+
+                    float x = t * float(w);
+                    if (pi == 0) releasePath.moveTo(x, y);
+                    else         releasePath.lineTo(x, y);
+                }
+
+                p.drawPath(releasePath);
+
+                if (!stillVisible)
+                    n163SmoothValid[c] = false;
+
+                continue;
+            }
+
+            // Nếu chưa từng có waveform hợp lệ thì mới rơi về cách vẽ cũ để vẫn thấy tín hiệu.
+            n163SmoothValid[c] = false;
+        }
+
+        // N163 không dùng stepWave để đường sóng chuyển động mượt hơn.
+        // Trigger N163 ở trên vẫn giữ nguyên để không bị trôi ngang.
         bool stepWave = (c == 0 || c == 1)
             || (mode == WaveMode::VRC6 && c >= 5)
-            || (mode == WaveMode::S5B  && c >= 5)
-            || (mode == WaveMode::MMC5 && (c == 5 || c == 6));;
+            || (mode == WaveMode::S5B && c >= 5)
+            || (mode == WaveMode::MMC5 && (c == 5 || c == 6));
 
         QPen pen(CHANNEL_COLORS[c]);
         if (mode == WaveMode::VRC7)
@@ -536,8 +882,9 @@ void AudioWaveWindow::paintGL()
 
         QPainterPath path;
 
-        // Số điểm vẽ: nhiều hơn để mượt
-        int drawPoints = w * 2; // sub-pixel resolution
+        // Số điểm vẽ: nhiều hơn để mượt.
+        // Riêng N163 tăng điểm vẽ vì đã bỏ stepWave, giúp chuyển động mềm hơn.
+        int drawPoints = (mode == WaveMode::N163) ? w * 3 : w * 2; // sub-pixel resolution
 
         for (int i = 0; i < drawPoints; i++)
         {

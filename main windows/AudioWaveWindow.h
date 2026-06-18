@@ -19,7 +19,8 @@ public:
         VRC6,
         VRC7,
         S5B,
-        MMC5
+        MMC5,
+        N163
     };
 
     AudioWaveWindow(WaveMode mode, QWidget* parent = nullptr);
@@ -40,6 +41,16 @@ private:
     QString names[CHANNEL_COUNT];
     QVector<float> buffers[CHANNEL_COUNT];
     float lastVisual[CHANNEL_COUNT]{};
+
+    // N163: làm mượt theo từng điểm X, nhưng cả hàng cập nhật cùng một frame.
+    QVector<float> n163SmoothY[CHANNEL_COUNT];
+    bool n163SmoothValid[CHANNEL_COUNT]{};
+
+    // N163: giữ trigger ổn định để sóng không trôi ngang/rung ngang
+    float n163LastTrigger[CHANNEL_COUNT]{};
+    float n163Period[CHANNEL_COUNT]{};
+    int n163LastBufferSize[CHANNEL_COUNT]{};
+    bool n163HasTrigger[CHANNEL_COUNT]{};
 
     QTimer* refreshTimer = nullptr;
     QMutex mutex;
