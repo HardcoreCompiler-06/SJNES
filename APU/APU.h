@@ -31,6 +31,15 @@ struct AudioDebugChannels {
     float mmc5Pulse1 = 0.0f;
     float mmc5Pulse2 = 0.0f;
     float mmc5PCM = 0.0f;
+
+    float n163Wave1 = 0.0f;
+    float n163Wave2 = 0.0f;
+    float n163Wave3 = 0.0f;
+    float n163Wave4 = 0.0f;
+    float n163Wave5 = 0.0f;
+    float n163Wave6 = 0.0f;
+    float n163Wave7 = 0.0f;
+    float n163Wave8 = 0.0f;
 };
 class Bus;
 
