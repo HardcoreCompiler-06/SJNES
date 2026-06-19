@@ -39,6 +39,7 @@
 #include "Mapper_019.h"
 #include <QTextBrowser>
 #include <QFileInfo>
+#include <QElapsedTimer>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
@@ -97,6 +98,9 @@ static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
         "   alt + 5 = xem sóng sunsoft 5B\n"
         "   alt + 6 = xem sóng vrc6\n"
         "   alt + 7 = xem sóng vrc7\n"
+		"   alt + 8 = xem sóng mmc5\n"
+		"   alt + 9 = xem sóng n163\n"
+		"   F10 = bật tắt hiện fps\n"
         "   ctrl + 1 hoặc 2,3,4,5,6 = tắt các âm sóng (hiện chưa hỗ trợ tắt sóng vrc7 và S5B)\n\n"
         "5. Debug:\n"
         "   Menu Debug có Audio Waveform, Mapper Viewer, Sprite Viewer và Audio Channel Debug.\n\n"
@@ -122,7 +126,7 @@ static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
 
     QObject::connect(okButton, &QPushButton::clicked, &dialog, [&]() {
         if (dontShowAgain->isChecked())
-            settings.setValue("HideQuickStart", true);
+            settings.setValue("hideQuickStart", true);
 
         dialog.accept();
         });
@@ -645,6 +649,11 @@ void SJNES::shutdownGamepad()
 
 void SJNES::updateGamepadInput()
 {
+    static QElapsedTimer gamepadScanTimer;
+
+    if (!gamepadScanTimer.isValid())
+        gamepadScanTimer.start();
+
     gamepadState1 = 0x00;
     gamepadState2 = 0x00;
 
@@ -656,6 +665,7 @@ void SJNES::updateGamepadInput()
     }
 
     SDL_PumpEvents();
+
     if (gameController && !SDL_GameControllerGetAttached(gameController))
     {
         ui.txtConsole->appendPlainText("Gamepad disconnected");
@@ -670,8 +680,13 @@ void SJNES::updateGamepadInput()
         nes_bus.controller_state2 = keyboardState2;
         return;
     }
-    if (!gameController)
+
+    // Không quét tay cầm mỗi frame nữa. Nếu không có tay cầm, chỉ quét lại mỗi 1 giây.
+    // Cái này giảm khựng nhỏ khi chạy trên máy yếu hoặc lúc Windows/SDL đang xử lý device.
+    if (!gameController && gamepadScanTimer.elapsed() >= 1000)
     {
+        gamepadScanTimer.restart();
+
         int count = SDL_NumJoysticks();
 
         for (int i = 0; i < count; i++)
@@ -861,7 +876,7 @@ void SJNES::loadRomFile(const QString& fileName)
 
     addRecentRom(fileName);
 
-    timer->start(16);
+    timer->start(1);
     ui.actPause->setText("Dừng (Pause)");
 }
 void SJNES::onOpenROMClicked()
@@ -999,7 +1014,7 @@ void SJNES::onResetClicked()
     );
 
     if (wasRunning) {
-        timer->start(16);
+        timer->start(1);
     }
 }
 void SJNES::onStepClicked() {
@@ -1008,24 +1023,53 @@ void SJNES::onStepClicked() {
         ui.actPause->setText("Chạy (Auto)");
     }
     else {
-        timer->start(16);
+        timer->start(1);
         ui.actPause->setText("Dừng (Pause)");
     }
 }
-void SJNES::runFrame() {
+void SJNES::runFrame()
+{
+    static QElapsedTimer framePacer;
+    static qint64 nextFrameNs = 0;
+
+    constexpr qint64 FRAME_NS = 16666667; // 60.000 FPS
+
+    if (!framePacer.isValid())
+    {
+        framePacer.start();
+        nextFrameNs = framePacer.nsecsElapsed();
+    }
+
+    qint64 now = framePacer.nsecsElapsed();
+
+    if (now < nextFrameNs)
+        return;
+
+    if (now - nextFrameNs > FRAME_NS * 5)
+        nextFrameNs = now;
+
+    nextFrameNs += FRAME_NS;
+
     updateGamepadInput();
+
     int framesToRun = fastForward ? fastForwardMultiplier : 1;
 
     for (int ff = 0; ff < framesToRun; ff++)
     {
-        static QByteArray audio_buffer;
+        static std::vector<float> audio_samples;
         static double audio_accumulator = 0.0;
 
-        if (audio_buffer.capacity() < 32768)
-            audio_buffer.reserve(32768);
+        audio_samples.clear();
+
+        if (audio_samples.capacity() < 8192)
+            audio_samples.reserve(8192);
 
         const float MASTER_VOLUME = 1.8f;
-        const bool outputAudio = !fastForward && audio_sink != nullptr && audio_device != nullptr;
+
+        const bool outputAudio =
+            !fastForward &&
+            audio_sink != nullptr &&
+            audio_device != nullptr;
 
         const bool needWaveDebug =
             (nesWaveWindow && nesWaveWindow->isVisible()) ||
@@ -1035,63 +1079,78 @@ void SJNES::runFrame() {
             (mmc5WaveWindow && mmc5WaveWindow->isVisible()) ||
             (n163WaveWindow && n163WaveWindow->isVisible());
 
+        const bool needAudioMix = outputAudio || needWaveDebug;
+
+        Mapper* mapper = nullptr;
+        Mapper_005* mmc5 = nullptr;
+        Mapper_019* n163 = nullptr;
+        Mapper_085* vrc7 = nullptr;
+        Mapper_069* s5b = nullptr;
+
+        if (nes_bus.cart && nes_bus.cart->pMapper)
+        {
+            mapper = nes_bus.cart->pMapper.get();
+            mmc5 = dynamic_cast<Mapper_005*>(mapper);
+            n163 = dynamic_cast<Mapper_019*>(mapper);
+            vrc7 = dynamic_cast<Mapper_085*>(mapper);
+            s5b = dynamic_cast<Mapper_069*>(mapper);
+        }
+
         auto pushWaveDebugIfNeeded = [&]() {
             if (!needWaveDebug)
                 return;
 
             AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
 
-            if (nes_bus.cart && nes_bus.cart->pMapper)
+            if (n163)
             {
-                if (auto* m19 = dynamic_cast<Mapper_019*>(nes_bus.cart->pMapper.get()))
-                {
-                    m19->GetN163DebugChannels(
-                        dbg.n163Wave1,
-                        dbg.n163Wave2,
-                        dbg.n163Wave3,
-                        dbg.n163Wave4,
-                        dbg.n163Wave5,
-                        dbg.n163Wave6,
-                        dbg.n163Wave7,
-                        dbg.n163Wave8
-                    );
-                }
-                else if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
-                {
-                    mmc5->GetMMC5DebugChannels(
-                        dbg.mmc5Pulse1,
-                        dbg.mmc5Pulse2,
-                        dbg.mmc5PCM
-                    );
-                }
-                else if (auto* m85 = dynamic_cast<Mapper_085*>(nes_bus.cart->pMapper.get()))
-                {
-                    m85->GetVrc7DebugChannels(
-                        dbg.vrc7Wave1,
-                        dbg.vrc7Wave2,
-                        dbg.vrc7Wave3,
-                        dbg.vrc7Wave4,
-                        dbg.vrc7Wave5,
-                        dbg.vrc7Wave6
-                    );
-                }
-                else if (auto* m69 = dynamic_cast<Mapper_069*>(nes_bus.cart->pMapper.get()))
-                {
-                    m69->GetExpansionDebugChannels(
-                        dbg.s5bToneA,
-                        dbg.s5bToneB,
-                        dbg.s5bToneC
-                    );
-                }
-                else
-                {
-                    nes_bus.cart->pMapper->GetExpansionDebugChannels(
-                        dbg.vrc6Pulse1,
-                        dbg.vrc6Pulse2,
-                        dbg.vrc6Saw
-                    );
-                }
+                n163->GetN163DebugChannels(
+                    dbg.n163Wave1,
+                    dbg.n163Wave2,
+                    dbg.n163Wave3,
+                    dbg.n163Wave4,
+                    dbg.n163Wave5,
+                    dbg.n163Wave6,
+                    dbg.n163Wave7,
+                    dbg.n163Wave8
+                );
             }
+            else if (mmc5)
+            {
+                mmc5->GetMMC5DebugChannels(
+                    dbg.mmc5Pulse1,
+                    dbg.mmc5Pulse2,
+                    dbg.mmc5PCM
+                );
+            }
+            else if (vrc7)
+            {
+                vrc7->GetVrc7DebugChannels(
+                    dbg.vrc7Wave1,
+                    dbg.vrc7Wave2,
+                    dbg.vrc7Wave3,
+                    dbg.vrc7Wave4,
+                    dbg.vrc7Wave5,
+                    dbg.vrc7Wave6
+                );
+            }
+            else if (s5b)
+            {
+                s5b->GetExpansionDebugChannels(
+                    dbg.s5bToneA,
+                    dbg.s5bToneB,
+                    dbg.s5bToneC
+                );
+            }
+            else if (mapper)
+            {
+                mapper->GetExpansionDebugChannels(
+                    dbg.vrc6Pulse1,
+                    dbg.vrc6Pulse2,
+                    dbg.vrc6Saw
+                );
+            }
+
             if (n163WaveWindow && n163WaveWindow->isVisible())
                 n163WaveWindow->pushChannels(dbg);
 
@@ -1109,105 +1168,110 @@ void SJNES::runFrame() {
 
             if (mmc5WaveWindow && mmc5WaveWindow->isVisible())
                 mmc5WaveWindow->pushChannels(dbg);
-            };
+        };
 
-        if (outputAudio && audio_sink->bytesFree() < 8192) {
+        if (outputAudio && audio_sink->bytesFree() < 4096)
+        {
             return;
         }
 
         const int PPU_CYCLES_PER_FRAME = 89342;
 
-        for (int i = 0; i < PPU_CYCLES_PER_FRAME; i++) {
+        for (int i = 0; i < PPU_CYCLES_PER_FRAME; i++)
+        {
             nes_bus.ppu->Step();
 
-            if (system_clock_counter % 3 == 0) {
+            if (system_clock_counter % 3 == 0)
+            {
+                // IRQ mapper chạy mỗi CPU cycle, đặt trước CPU clock.
+                if (mapper)
+                {
+                    mapper->irqStep();
 
-                // VRC6 IRQ/audio chạy mỗi CPU cycle, đặt TRƯỚC CPU clock
-                if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr) {
-                    nes_bus.cart->pMapper->irqStep();
-
-                    if (nes_bus.cart->pMapper->irqState())
-                    {
+                    if (mapper->irqState())
                         nes_cpu.SetIrqSource(CPU6502::IRQ_EXTERNAL);
+                    else
+                        nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
+                }
+
+                if (nes_bus.dma_transfer)
+                {
+                    if (dma_dummy_counter < 512)
+                    {
+                        dma_dummy_counter++;
                     }
                     else
                     {
-                        nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
-                    }
-                }
-
-                if (nes_bus.dma_transfer) {
-                    if (dma_dummy_counter < 512) {
-                        dma_dummy_counter++;
-                    }
-                    else {
                         nes_bus.dma_transfer = false;
                         dma_dummy_counter = 0;
                     }
                 }
-                else {
+                else
+                {
                     nes_cpu.clock();
                 }
 
                 nes_bus.n_apu.Step();
 
-                // MMC5 audio chạy mỗi CPU cycle
-                if (nes_bus.cart && nes_bus.cart->pMapper)
-                {
-                    if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
-                    {
-                        mmc5->ClockAudio();
-                    }
-                }
+                // Cache mmc5 ở đầu frame để tránh dynamic_cast hơn 29.000 lần/frame.
+                if (mmc5)
+                    mmc5->ClockAudio();
 
                 audio_accumulator += 44100.0 / 1789773.0;
-                if (audio_accumulator >= 1.0) {
+
+                if (audio_accumulator >= 1.0)
+                {
                     audio_accumulator -= 1.0;
 
-                    if (is_stereo) {
-                        float left, right;
-                        nes_bus.n_apu.GetOutputSampleStereo(left, right);
-
-                        float exp = 0.0f;
-                        if (nes_bus.cart && nes_bus.cart->pMapper)
+                    // Khi fast-forward và không mở cửa sổ waveform, bỏ hẳn mix audio.
+                    // Như vậy tua nhanh nhẹ hơn nhiều, nhất là với VRC7.
+                    if (needAudioMix)
+                    {
+                        if (is_stereo)
                         {
-                            exp = nes_bus.cart->pMapper->GetExpansionAudio();
+                            float left = 0.0f;
+                            float right = 0.0f;
+
+                            nes_bus.n_apu.GetOutputSampleStereo(left, right);
+
+                            // Gọi expansion audio sau APU để VRC7/mapper audio vẫn clock đúng khi có âm/debug.
+                            float exp = mapper ? mapper->GetExpansionAudio() : 0.0f;
+
+                            pushWaveDebugIfNeeded();
+
+                            left += exp;
+                            right += exp;
+
+                            left = std::clamp(left * MASTER_VOLUME, -1.0f, 1.0f);
+                            right = std::clamp(right * MASTER_VOLUME, -1.0f, 1.0f);
+
+                            if (outputAudio)
+                            {
+                                audio_samples.push_back(left);
+                                audio_samples.push_back(right);
+                            }
                         }
-
-                        pushWaveDebugIfNeeded();
-
-                        left += exp;
-                        right += exp;
-
-                        left = std::clamp(left * MASTER_VOLUME, -1.0f, 1.0f);
-                        right = std::clamp(right * MASTER_VOLUME, -1.0f, 1.0f);
-
-                        audio_buffer.append(reinterpret_cast<const char*>(&left), sizeof(float));
-                        audio_buffer.append(reinterpret_cast<const char*>(&right), sizeof(float));
-                    }
-                    else {
-                        float sample = nes_bus.n_apu.GetOutputSample();
-
-                        // Quan trọng: gọi expansion audio trước để VRC7 OPLL_calc() chạy
-                        float exp = 0.0f;
-                        if (nes_bus.cart && nes_bus.cart->pMapper)
+                        else
                         {
-                            exp = nes_bus.cart->pMapper->GetExpansionAudio();
+                            float sample = nes_bus.n_apu.GetOutputSample();
+
+                            // Quan trọng: gọi expansion audio trước khi lấy waveform debug để VRC7 OPLL_calc() chạy.
+                            float exp = mapper ? mapper->GetExpansionAudio() : 0.0f;
+
+                            pushWaveDebugIfNeeded();
+
+                            sample += exp;
+                            sample = std::clamp(sample * MASTER_VOLUME, -1.0f, 1.0f);
+
+                            if (outputAudio)
+                                audio_samples.push_back(sample);
                         }
-
-                        pushWaveDebugIfNeeded();
-
-                        sample += exp;
-
-                        sample = std::clamp(sample * MASTER_VOLUME, -1.0f, 1.0f);
-
-                        audio_buffer.append(reinterpret_cast<const char*>(&sample), sizeof(float));
                     }
                 }
             }
 
-
-            if (nes_bus.ppu->nmi_requested) {
+            if (nes_bus.ppu->nmi_requested)
+            {
                 nes_bus.ppu->nmi_requested = false;
                 nes_cpu.nmi();
             }
@@ -1220,18 +1284,14 @@ void SJNES::runFrame() {
 
         for (int i = 0; i < extraCpuCycles; i++)
         {
-            if (nes_bus.cart != nullptr && nes_bus.cart->pMapper != nullptr)
+            if (mapper)
             {
-                nes_bus.cart->pMapper->irqStep();
+                mapper->irqStep();
 
-                if (nes_bus.cart->pMapper->irqState())
-                {
+                if (mapper->irqState())
                     nes_cpu.SetIrqSource(CPU6502::IRQ_EXTERNAL);
-                }
                 else
-                {
                     nes_cpu.ClearIrqSource(CPU6502::IRQ_EXTERNAL);
-                }
             }
 
             if (nes_bus.dma_transfer)
@@ -1251,26 +1311,18 @@ void SJNES::runFrame() {
                 nes_cpu.clock();
             }
 
-            // MMC5 audio chạy theo extra CPU cycle
-            if (nes_bus.cart && nes_bus.cart->pMapper)
-            {
-                if (auto* mmc5 = dynamic_cast<Mapper_005*>(nes_bus.cart->pMapper.get()))
-                {
-                    mmc5->ClockAudio();
-                }
-            }
+            // MMC5 audio chạy theo extra CPU cycle.
+            if (mmc5)
+                mmc5->ClockAudio();
         }
 
-        if (!fastForward && audio_device != nullptr && !audio_buffer.isEmpty()) {
-            audio_device->write(audio_buffer.data(), audio_buffer.size());
-            audio_buffer.clear();
+        if (outputAudio && !audio_samples.empty())
+        {
+            audio_device->write(
+                reinterpret_cast<const char*>(audio_samples.data()),
+                static_cast<qint64>(audio_samples.size() * sizeof(float))
+            );
         }
-
-        if (fastForward) {
-            audio_buffer.clear();
-        }
-
-        QImage frameImage = nes_bus.ppu->GetScreen();
 
         gameFpsCounter++;
 
@@ -1284,7 +1336,6 @@ void SJNES::runFrame() {
             ui.gameScreen->setFrame(frameImage.copy());
         }
 
-        // Cập nhật FPS mỗi 1 giây
         const int FPS_UPDATE_MS = 500;
 
         if (fpsTimer.elapsed() >= FPS_UPDATE_MS)
@@ -1311,6 +1362,7 @@ void SJNES::runFrame() {
                 ui.gameScreen->setOverlayText("");
             }
         }
+
         videoFrameCounter++;
         gLogBuffer.clear();
     }
@@ -1581,7 +1633,11 @@ void SJNES::restartAudioSink()
     QAudioDevice outputDevice = QMediaDevices::defaultAudioOutput();
 
     audio_sink = new QAudioSink(outputDevice, format, this);
-    audio_sink->setBufferSize(32768);
+
+    // Tăng buffer để khi kéo/di chuyển cửa sổ, audio còn dữ liệu dự phòng nên đỡ khựng/rè hơn.
+    // Gốc là 32768.
+    audio_sink->setBufferSize(65536);
+
     audio_device = audio_sink->start();
 
     ui.txtConsole->appendPlainText(
