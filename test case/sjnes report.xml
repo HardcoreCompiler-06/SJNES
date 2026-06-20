@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<SJNESUnitTestReport total="20" passed="20" failed="0" skipped="0">
+    <TestCase id="TC01" suite="INesHeaderTest" name="ValidMagicHeader" result="PASS" />
+    <TestCase id="TC02" suite="INesHeaderTest" name="InvalidMagicHeader" result="PASS" />
+    <TestCase id="TC03" suite="INesHeaderTest" name="ReadPrgBankCount" result="PASS" />
+    <TestCase id="TC04" suite="INesHeaderTest" name="ReadChrBankCount" result="PASS" />
+    <TestCase id="TC05" suite="INesHeaderTest" name="TrainerFlagEnabled" result="PASS" />
+    <TestCase id="TC06" suite="MapperTest" name="MapperLowerNibble" result="PASS" />
+    <TestCase id="TC07" suite="MapperTest" name="MapperUpperNibble" result="PASS" />
+    <TestCase id="TC08" suite="MapperTest" name="FullMapperID" result="PASS" />
+    <TestCase id="TC09" suite="MirroringTest" name="HorizontalMirroring" result="PASS" />
+    <TestCase id="TC10" suite="MirroringTest" name="VerticalMirroring" result="PASS" />
+    <TestCase id="TC11" suite="RomSizeTest" name="PrgRomSize" result="PASS" />
+    <TestCase id="TC12" suite="RomSizeTest" name="ChrRomSize" result="PASS" />
+    <TestCase id="TC13" suite="RomSizeTest" name="ChrRamFallback" result="PASS" />
+    <TestCase id="TC14" suite="CpuTest" name="ResetVector8000" result="PASS" />
+    <TestCase id="TC15" suite="CpuTest" name="ResetVector1234" result="PASS" />
+    <TestCase id="TC16" suite="PpuPaletteTest" name="Mirror3F10To3F00" result="PASS" />
+    <TestCase id="TC17" suite="PpuPaletteTest" name="Mirror3F14To3F04" result="PASS" />
+    <TestCase id="TC18" suite="ControllerTest" name="ReadButtonAWhenPressed" result="PASS" />
+    <TestCase id="TC19" suite="ControllerTest" name="ReadButtonAWhenNotPressed" result="PASS" />
+    <TestCase id="TC20" suite="TimingTest" name="NtscFramePpuCycles" result="PASS" />
+</SJNESUnitTestReport>
