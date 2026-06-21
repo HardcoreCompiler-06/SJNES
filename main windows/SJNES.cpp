@@ -258,9 +258,9 @@ SJNES::SJNES(QWidget* parent)
 
             infoText->setHtml(
                 "<h3>SJNES Emulator</h3>"
-                "<p><b>phiên bản:</b> 2.0</p>"
+                "<p><b>phiên bản:</b> 2.1</p>"
                 "<p><b>lần đầu phát hành:</b> 9/4/2026</p>"
-                "<p><b>ngày cập nhật phiên bản mới nhất:18/6/2026"
+                "<p><b>ngày cập nhật phiên bản mới nhất:21/6/2026</b>"
                 "<p><b>Developer:</b> Nguyễn Quyết Chiến, Nguyễn Dức An, Phạm Đăng Hoàn</p>"
                 "<p><b>ngôn ngữ lập trình:</b> C++ / Qt / C</p>"
                 "<p><b>rom hỗ trợ:</b> .nes, .zip</p>"
