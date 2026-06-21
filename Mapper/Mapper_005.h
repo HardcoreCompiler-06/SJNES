@@ -53,6 +53,8 @@ public:
     float GetMMC5PCMSample() const;
 
     void GetMMC5DebugChannels(float& pulse1, float& pulse2, float& pcm) const;
+    void GetMMC5DebugPeriods(float& pulse1, float& pulse2) const;
+    void GetMMC5DebugDuty(float& pulse1, float& pulse2) const;
 
     float GetExpansionAudio() override;
 

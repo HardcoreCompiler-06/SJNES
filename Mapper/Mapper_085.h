@@ -32,6 +32,14 @@ public:
         float& ch1, float& ch2, float& ch3,
         float& ch4, float& ch5, float& ch6
     );
+    void GetVrc7DebugPeriods(
+        float& ch1, float& ch2, float& ch3,
+        float& ch4, float& ch5, float& ch6
+    );
+    void GetVrc7DebugPhases(
+        float& ch1, float& ch2, float& ch3,
+        float& ch4, float& ch5, float& ch6
+    );
     float GetExpansionAudio() override;
     void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) override;
 
@@ -57,4 +65,7 @@ private:
 
     float lastVrc7Sample = 0.0f;
     float lastVrc7Debug[6]{};
+    float lastVrc7Phase[6]{};
+    float lastVrc7Period[6]{};
+    bool lastVrc7PhaseValid[6]{};
 };

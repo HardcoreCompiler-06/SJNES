@@ -315,6 +315,54 @@ void Mapper_069::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
     ch2 = lastToneSample[1];
     ch3 = lastToneSample[2];
 }
+
+void Mapper_069::GetS5BDebugPeriods(float& ch1, float& ch2, float& ch3) const
+{
+    constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
+    auto calc = [&](int ch) -> float {
+        uint8_t mixer = audioRegs[7];
+        bool toneDisabled = (mixer & (1 << ch)) != 0;
+        uint8_t volReg = audioRegs[8 + ch];
+        int volume = volReg & 0x0F;
+
+        if (toneDisabled || volume == 0)
+            return 0.0f;
+
+        int fineReg = ch * 2;
+        int coarseReg = ch * 2 + 1;
+        int period = audioRegs[fineReg] | ((audioRegs[coarseReg] & 0x0F) << 8);
+        if (period <= 0)
+            period = 1;
+
+        // Tone output đảo trạng thái sau mỗi period qua divider 16 CPU cycle.
+        // Một chu kỳ vuông cần 2 lần đảo.
+        float samples = float(period + 1) * 32.0f * CPU_TO_SAMPLE;
+        if (samples < 2.0f) return 0.0f;
+        if (samples > 8192.0f) return 8192.0f;
+        return samples;
+        };
+
+    ch1 = calc(0);
+    ch2 = calc(1);
+    ch3 = calc(2);
+}
+
+void Mapper_069::GetS5BDebugDuty(float& ch1, float& ch2, float& ch3) const
+{
+    // PSG/Sunsoft 5B tone là square 50%.
+    auto active = [&](int ch) -> float {
+        uint8_t mixer = audioRegs[7];
+        bool toneDisabled = (mixer & (1 << ch)) != 0;
+        uint8_t volReg = audioRegs[8 + ch];
+        int volume = volReg & 0x0F;
+        return (!toneDisabled && volume > 0) ? 0.5f : -1.0f;
+    };
+
+    ch1 = active(0);
+    ch2 = active(1);
+    ch3 = active(2);
+}
+
 QString Mapper_069::GetDebugInfo()
 {
     QString s;

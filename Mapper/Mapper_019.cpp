@@ -399,3 +399,21 @@ void Mapper_019::GetN163DebugChannels(
     ch7 = out[6];
     ch8 = out[7];
 }
+
+void Mapper_019::GetN163DebugPeriods(
+    float& ch1, float& ch2, float& ch3, float& ch4,
+    float& ch5, float& ch6, float& ch7, float& ch8
+)
+{
+    float out[8]{};
+    n163.GetDebugPeriods(out);
+
+    ch1 = out[0];
+    ch2 = out[1];
+    ch3 = out[2];
+    ch4 = out[3];
+    ch5 = out[4];
+    ch6 = out[5];
+    ch7 = out[6];
+    ch8 = out[7];
+}

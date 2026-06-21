@@ -46,7 +46,12 @@ void Mapper_085::reset()
     lastVrc7Sample = 0.0f;
 
     for (int i = 0; i < 6; i++)
+    {
         lastVrc7Debug[i] = 0.0f;
+        lastVrc7Phase[i] = 0.0f;
+        lastVrc7Period[i] = 0.0f;
+        lastVrc7PhaseValid[i] = false;
+    }
 
     if (opll)
     {
@@ -290,7 +295,7 @@ float Mapper_085::GetExpansionAudio()
     int sample = OPLL_calc(opll);
 
     float out = float(sample) / 32768.0f;
-    out *= 1.0f;
+    out *= 3.0f;
 
     lastVrc7Sample = out;
 
@@ -299,8 +304,37 @@ float Mapper_085::GetExpansionAudio()
     {
         lastVrc7Debug[i] = float(opll->ch_out[i]) / 32768.0f;
 
-        // scale debug riêng cho dễ nhìn, không ảnh hưởng âm thanh
         lastVrc7Debug[i] *= 2.5f;
+
+        // Carrier slot = ch*2+1. Dùng pg_phase của emu2413 làm phase anchor thật.
+        // Không dùng zero-crossing vì FM/VRC7 có nhiều crossing và feedback nên rất dễ trôi/rung.
+        const int carrierSlot = i * 2 + 1;
+        const uint32_t DP_WIDTH_LOCAL = 1u << 19;
+        float phase = float(opll->slot[carrierSlot].pg_phase & (DP_WIDTH_LOCAL - 1)) / float(DP_WIDTH_LOCAL);
+
+        if (lastVrc7PhaseValid[i])
+        {
+            float delta = phase - lastVrc7Phase[i];
+            if (delta <= 0.0f)
+                delta += 1.0f;
+
+            // delta là số vòng phase / 1 audio sample. Period = sample / vòng.
+            // Bỏ qua delta bất thường khi key-on/reset phase.
+            if (delta > 0.00001f && delta < 0.50f)
+            {
+                float p = 1.0f / delta;
+                if (p >= 4.0f && p <= 8192.0f)
+                {
+                    if (lastVrc7Period[i] <= 0.0f)
+                        lastVrc7Period[i] = p;
+                    else
+                        lastVrc7Period[i] = lastVrc7Period[i] * 0.82f + p * 0.18f;
+                }
+            }
+        }
+
+        lastVrc7Phase[i] = phase;
+        lastVrc7PhaseValid[i] = true;
     }
 
     return out;
@@ -317,6 +351,32 @@ void Mapper_085::GetVrc7DebugChannels(
     ch4 = lastVrc7Debug[3];
     ch5 = lastVrc7Debug[4];
     ch6 = lastVrc7Debug[5];
+}
+
+void Mapper_085::GetVrc7DebugPeriods(
+    float& ch1, float& ch2, float& ch3,
+    float& ch4, float& ch5, float& ch6
+)
+{
+    ch1 = lastVrc7Period[0];
+    ch2 = lastVrc7Period[1];
+    ch3 = lastVrc7Period[2];
+    ch4 = lastVrc7Period[3];
+    ch5 = lastVrc7Period[4];
+    ch6 = lastVrc7Period[5];
+}
+
+void Mapper_085::GetVrc7DebugPhases(
+    float& ch1, float& ch2, float& ch3,
+    float& ch4, float& ch5, float& ch6
+)
+{
+    ch1 = lastVrc7Phase[0];
+    ch2 = lastVrc7Phase[1];
+    ch3 = lastVrc7Phase[2];
+    ch4 = lastVrc7Phase[3];
+    ch5 = lastVrc7Phase[4];
+    ch6 = lastVrc7Phase[5];
 }
 
 void Mapper_085::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)

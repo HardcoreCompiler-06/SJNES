@@ -722,6 +722,38 @@ void Mapper_005::GetMMC5DebugChannels(float& pulse1, float& pulse2, float& pcm) 
     pcm = GetMMC5PCMSample();
 }
 
+void Mapper_005::GetMMC5DebugPeriods(float& pulse1, float& pulse2) const
+{
+    constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
+    auto calc = [](const MMC5Pulse& p) -> float {
+        constexpr float CPU_TO_SAMPLE_LOCAL = 44100.0f / 1789773.0f;
+        if (!p.enabled || p.timer < 8)
+            return 0.0f;
+
+        // MMC5 pulse dùng duty 8 bước, clock theo CPU cycle trong SJNES.
+        float samples = float(p.timer + 1) * 8.0f * CPU_TO_SAMPLE_LOCAL;
+        if (samples < 2.0f) return 0.0f;
+        if (samples > 8192.0f) return 8192.0f;
+        return samples;
+        };
+
+    pulse1 = calc(mmc5Pulse[0]);
+    pulse2 = calc(mmc5Pulse[1]);
+}
+
+
+void Mapper_005::GetMMC5DebugDuty(float& pulse1, float& pulse2) const
+{
+    auto calc = [](const MMC5Pulse& p) -> float {
+        if (!p.enabled || p.timer < 8)
+            return -1.0f;
+        return float((p.control >> 6) & 0x03);
+    };
+
+    pulse1 = calc(mmc5Pulse[0]);
+    pulse2 = calc(mmc5Pulse[1]);
+}
+
 float Mapper_005::GetExpansionAudio()
 {
     float p1 = GetMMC5Pulse1Sample();

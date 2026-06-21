@@ -36,6 +36,11 @@ public:
         float& ch1, float& ch2, float& ch3, float& ch4,
         float& ch5, float& ch6, float& ch7, float& ch8
     );
+
+    void GetN163DebugPeriods(
+        float& ch1, float& ch2, float& ch3, float& ch4,
+        float& ch5, float& ch6, float& ch7, float& ch8
+    );
 private:
 
     void UpdateNametableMirror();

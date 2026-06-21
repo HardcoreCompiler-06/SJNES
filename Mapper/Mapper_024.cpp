@@ -1,5 +1,4 @@
 #include "Mapper_024.h"
-#include <qdebug.h>
 Mapper_024::Mapper_024(uint8_t prgBanks, uint8_t chrBanks)
     : Mapper(prgBanks, chrBanks)
 {
@@ -589,7 +588,7 @@ float Mapper_024::GetExpansionAudio()
 
     mix += pulse1.output * 0.35f;
     mix += pulse2.output * 0.35f;
-    mix += saw.output * 0.45f;
+    mix += saw.output * 0.88f;
 
     return mix * 0.35f;
 }
@@ -607,6 +606,49 @@ void Mapper_024::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
     ch2 = pulse2.output;
     ch3 = saw.output;
 }
+
+void Mapper_024::GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const
+{
+    constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
+    auto clampPeriod = [](float v) -> float {
+        if (v < 2.0f) return 0.0f;
+        if (v > 8192.0f) return 8192.0f;
+        return v;
+        };
+
+    // VRC6 pulse: 16 duty steps / chu kỳ, clock theo CPU cycle.
+    ch1 = (!muteVRC6 && pulse1.enable && pulse1.period >= 8)
+        ? clampPeriod(float(pulse1.period + 1) * 16.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    ch2 = (!muteVRC6 && pulse2.enable && pulse2.period >= 8)
+        ? clampPeriod(float(pulse2.period + 1) * 16.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    // VRC6 saw: 14 steps / chu kỳ.
+    ch3 = (!muteVRC6 && saw.enable && saw.period >= 8)
+        ? clampPeriod(float(saw.period + 1) * 14.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+}
+
+
+void Mapper_024::GetVRC6DebugDuty(float& ch1, float& ch2) const
+{
+    auto calc = [&](const VRC6Pulse& p) -> float {
+        if (muteVRC6 || !p.enable || p.period < 8 || p.volume == 0)
+            return -1.0f;
+
+        // Sentinel 15 = constant/high mode của VRC6 ($x000 bit 7).
+        if (p.mode)
+            return 15.0f;
+
+        return float(p.duty & 0x07);
+    };
+
+    ch1 = calc(pulse1);
+    ch2 = calc(pulse2);
+}
+
 QString Mapper_024::GetDebugInfo()
 {
     QString s;
