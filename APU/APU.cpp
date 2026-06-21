@@ -152,6 +152,52 @@ AudioDebugChannels APU::GetDebugChannels()
     ch.noise = muteNoise ? 0.0f : ((n / 15.0f) * 2.0f - 1.0f);
     ch.dmc = muteDMC ? 0.0f : ((d / 127.0f) * 2.0f - 1.0f);
 
+    // Period hint theo đơn vị sample audio. AudioWaveWindow dùng cái này để
+    // khóa pha theo timer thật, không đo chu kỳ từ hình sóng nữa.
+    constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
+    auto clampPeriod = [](float v) -> float {
+        if (v < 2.0f) return 0.0f;
+        if (v > 8192.0f) return 8192.0f;
+        return v;
+        };
+
+    // Pulse: timer clock mỗi 2 CPU cycle, 8 bước duty / 1 chu kỳ.
+    ch.pulse1Period = (!mutePulse1 && f1.enabled && !f1.IsMuted())
+        ? clampPeriod(float(f1.timer_reload + 1) * 16.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    ch.pulse2Period = (!mutePulse2 && f2.enabled && !f2.IsMuted())
+        ? clampPeriod(float(f2.timer_reload + 1) * 16.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    // Triangle: timer clock mỗi CPU cycle, 32 bước / 1 chu kỳ.
+    ch.trianglePeriod = (!muteTriangle && tri.enabled && tri.length_counter > 0 && tri.linear_counter > 0)
+        ? clampPeriod(float(tri.timer_reload + 1) * 32.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    // Noise/DMC không có waveform chu kỳ ổn định như pulse/triangle, vẫn để hint mềm.
+    ch.noisePeriod = (!muteNoise && noise.enabled)
+        ? clampPeriod(float(noise.timer_reload + 1) * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    ch.dmcPeriod = (!muteDMC && dmc.enabled)
+        ? clampPeriod(float(dmc.timer_reload + 1) * 8.0f * CPU_TO_SAMPLE)
+        : 0.0f;
+
+    // Chip-shape hint cho waveform debug:
+    // duty/phase lấy trực tiếp từ chip state, tránh phải đo duty bằng zero-crossing.
+    ch.pulse1Duty = (!mutePulse1 && f1.enabled && !f1.IsMuted() && f1.length_counter > 0)
+        ? float(f1.duty)
+        : -1.0f;
+
+    ch.pulse2Duty = (!mutePulse2 && f2.enabled && !f2.IsMuted() && f2.length_counter > 0)
+        ? float(f2.duty)
+        : -1.0f;
+
+    ch.trianglePhase = (!muteTriangle && tri.enabled && tri.length_counter > 0 && tri.linear_counter > 0)
+        ? float(tri.tri_phase & 31)
+        : -1.0f;
+
     return ch;
 }
 

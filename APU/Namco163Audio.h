@@ -49,6 +49,51 @@ public:
             }
         }
     }
+    void GetDebugPeriods(float out[8]) const
+    {
+        for (int i = 0; i < 8; i++)
+            out[i] = 0.0f;
+
+        if (soundDisabled)
+            return;
+
+        constexpr float CPU_RATE = 1789773.0f;
+        constexpr float SAMPLE_RATE = 44100.0f;
+
+        int count = GetActiveChannelCount();
+        int lowest = GetLowestEnabledChannel();
+
+        for (int ch = lowest; ch < 8; ch++)
+        {
+            int viewIndex = ch - lowest;
+            if (viewIndex < 0 || viewIndex >= 8)
+                continue;
+
+            int base = 0x40 + ch * 8;
+
+            uint32_t freq =
+                (uint32_t(ram[base + 4] & 0x03) << 16) |
+                (uint32_t(ram[base + 2]) << 8) |
+                uint32_t(ram[base + 0]);
+
+            uint32_t waveLength = 256 - (ram[base + 4] & 0xFC);
+            if (waveLength == 0)
+                waveLength = 256;
+
+            if (freq == 0)
+                continue;
+
+            // Mỗi channel được clock 1 lần sau 15 * số-kênh CPU cycle.
+            // Một vòng wave cần (waveLength << 16) / freq lần update phase.
+            float channelCpuStep = 15.0f * float(count);
+            float updatesPerWave = (float(waveLength) * 65536.0f) / float(freq);
+            float cpuCyclesPerWave = updatesPerWave * channelCpuStep;
+            float periodSamples = cpuCyclesPerWave * SAMPLE_RATE / CPU_RATE;
+
+            out[viewIndex] = std::clamp(periodSamples, 2.0f, 8192.0f);
+        }
+    }
+
     void SetVolume(float v)
     {
         volume = v;
