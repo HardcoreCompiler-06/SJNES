@@ -1032,7 +1032,11 @@ void SJNES::runFrame()
     static QElapsedTimer framePacer;
     static qint64 nextFrameNs = 0;
 
-    constexpr qint64 FRAME_NS = 16666667; // 60.000 FPS
+    constexpr double NES_CPU_HZ = 1789773.0;
+    constexpr double NES_PPU_CYCLES_PER_FRAME = 89342.0;
+    constexpr double NES_FPS = NES_CPU_HZ / (NES_PPU_CYCLES_PER_FRAME / 3.0);
+
+    const qint64 FRAME_NS = static_cast<qint64>(1000000000.0 / NES_FPS);
 
     if (!framePacer.isValid())
     {
@@ -1064,7 +1068,7 @@ void SJNES::runFrame()
         if (audio_samples.capacity() < 8192)
             audio_samples.reserve(8192);
 
-        const float MASTER_VOLUME = 1.8f;
+        const float MASTER_VOLUME = 0.95f;
 
         const bool outputAudio =
             !fastForward &&
@@ -1242,7 +1246,9 @@ void SJNES::runFrame()
                 mmc5WaveWindow->pushChannels(dbg);
         };
 
-        if (outputAudio && audio_sink->bytesFree() < 4096)
+        const qint64 minFreeBytes = is_stereo ? 8192 : 4096;
+
+        if (outputAudio && audio_sink->bytesFree() < minFreeBytes)
         {
             return;
         }
@@ -1708,7 +1714,7 @@ void SJNES::restartAudioSink()
 
     // Tăng buffer để khi kéo/di chuyển cửa sổ, audio còn dữ liệu dự phòng nên đỡ khựng/rè hơn.
     // Gốc là 32768.
-    audio_sink->setBufferSize(65536);
+    audio_sink->setBufferSize(32768);
 
     audio_device = audio_sink->start();
 
