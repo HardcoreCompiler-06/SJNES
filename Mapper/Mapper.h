@@ -30,6 +30,9 @@ public:
     virtual bool cpuReadRegister(uint16_t addr, uint8_t& data) { return false; }
     virtual void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) { ch1 = 0.0f; ch2 = 0.0f; ch3 = 0.0f; }
 
+    virtual void ClockCpu(int cycles) {}
+    virtual float GetExpansionAudioSample() const { return 0.0f; }
+
     virtual QString GetDebugInfo() {
         QString s = "===== DEBUG MAPPER =====\n";
         s += QString("PRG Banks: %1\n").arg(nPRGBanks);
