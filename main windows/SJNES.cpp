@@ -258,9 +258,9 @@ SJNES::SJNES(QWidget* parent)
 
             infoText->setHtml(
                 "<h3>SJNES Emulator</h3>"
-                "<p><b>phiên bản:</b> 2.1</p>"
+                "<p><b>phiên bản:</b> 2.0</p>"
                 "<p><b>lần đầu phát hành:</b> 9/4/2026</p>"
-                "<p><b>ngày cập nhật phiên bản mới nhất:21/6/2026</b>"
+                "<p><b>ngày cập nhật phiên bản mới nhất:18/6/2026"
                 "<p><b>Developer:</b> Nguyễn Quyết Chiến, Nguyễn Dức An, Phạm Đăng Hoàn</p>"
                 "<p><b>ngôn ngữ lập trình:</b> C++ / Qt / C</p>"
                 "<p><b>rom hỗ trợ:</b> .nes, .zip</p>"
@@ -1032,11 +1032,7 @@ void SJNES::runFrame()
     static QElapsedTimer framePacer;
     static qint64 nextFrameNs = 0;
 
-    constexpr double NES_CPU_HZ = 1789773.0;
-    constexpr double NES_PPU_CYCLES_PER_FRAME = 89342.0;
-    constexpr double NES_FPS = NES_CPU_HZ / (NES_PPU_CYCLES_PER_FRAME / 3.0);
-
-    const qint64 FRAME_NS = static_cast<qint64>(1000000000.0 / NES_FPS);
+    constexpr qint64 FRAME_NS = 16666667; // 60.000 FPS
 
     if (!framePacer.isValid())
     {
@@ -1068,7 +1064,7 @@ void SJNES::runFrame()
         if (audio_samples.capacity() < 8192)
             audio_samples.reserve(8192);
 
-        const float MASTER_VOLUME = 0.95f;
+        const float MASTER_VOLUME = 1.8f;
 
         const bool outputAudio =
             !fastForward &&
@@ -1090,7 +1086,6 @@ void SJNES::runFrame()
         Mapper_019* n163 = nullptr;
         Mapper_085* vrc7 = nullptr;
         Mapper_069* s5b = nullptr;
-        Mapper_024* vrc6 = nullptr;
 
         if (nes_bus.cart && nes_bus.cart->pMapper)
         {
@@ -1099,7 +1094,6 @@ void SJNES::runFrame()
             n163 = dynamic_cast<Mapper_019*>(mapper);
             vrc7 = dynamic_cast<Mapper_085*>(mapper);
             s5b = dynamic_cast<Mapper_069*>(mapper);
-            vrc6 = dynamic_cast<Mapper_024*>(mapper);
         }
 
         auto pushWaveDebugIfNeeded = [&]() {
@@ -1120,17 +1114,6 @@ void SJNES::runFrame()
                     dbg.n163Wave7,
                     dbg.n163Wave8
                 );
-
-                n163->GetN163DebugPeriods(
-                    dbg.n163Period1,
-                    dbg.n163Period2,
-                    dbg.n163Period3,
-                    dbg.n163Period4,
-                    dbg.n163Period5,
-                    dbg.n163Period6,
-                    dbg.n163Period7,
-                    dbg.n163Period8
-                );
             }
             else if (mmc5)
             {
@@ -1138,16 +1121,6 @@ void SJNES::runFrame()
                     dbg.mmc5Pulse1,
                     dbg.mmc5Pulse2,
                     dbg.mmc5PCM
-                );
-
-                mmc5->GetMMC5DebugPeriods(
-                    dbg.mmc5Pulse1Period,
-                    dbg.mmc5Pulse2Period
-                );
-
-                mmc5->GetMMC5DebugDuty(
-                    dbg.mmc5Pulse1Duty,
-                    dbg.mmc5Pulse2Duty
                 );
             }
             else if (vrc7)
@@ -1160,24 +1133,6 @@ void SJNES::runFrame()
                     dbg.vrc7Wave5,
                     dbg.vrc7Wave6
                 );
-
-                vrc7->GetVrc7DebugPeriods(
-                    dbg.vrc7Wave1Period,
-                    dbg.vrc7Wave2Period,
-                    dbg.vrc7Wave3Period,
-                    dbg.vrc7Wave4Period,
-                    dbg.vrc7Wave5Period,
-                    dbg.vrc7Wave6Period
-                );
-
-                vrc7->GetVrc7DebugPhases(
-                    dbg.vrc7Wave1Phase,
-                    dbg.vrc7Wave2Phase,
-                    dbg.vrc7Wave3Phase,
-                    dbg.vrc7Wave4Phase,
-                    dbg.vrc7Wave5Phase,
-                    dbg.vrc7Wave6Phase
-                );
             }
             else if (s5b)
             {
@@ -1185,37 +1140,6 @@ void SJNES::runFrame()
                     dbg.s5bToneA,
                     dbg.s5bToneB,
                     dbg.s5bToneC
-                );
-
-                s5b->GetS5BDebugPeriods(
-                    dbg.s5bToneAPeriod,
-                    dbg.s5bToneBPeriod,
-                    dbg.s5bToneCPeriod
-                );
-
-                s5b->GetS5BDebugDuty(
-                    dbg.s5bToneADuty,
-                    dbg.s5bToneBDuty,
-                    dbg.s5bToneCDuty
-                );
-            }
-            else if (vrc6)
-            {
-                vrc6->GetExpansionDebugChannels(
-                    dbg.vrc6Pulse1,
-                    dbg.vrc6Pulse2,
-                    dbg.vrc6Saw
-                );
-
-                vrc6->GetVRC6DebugPeriods(
-                    dbg.vrc6Pulse1Period,
-                    dbg.vrc6Pulse2Period,
-                    dbg.vrc6SawPeriod
-                );
-
-                vrc6->GetVRC6DebugDuty(
-                    dbg.vrc6Pulse1Duty,
-                    dbg.vrc6Pulse2Duty
                 );
             }
             else if (mapper)
@@ -1246,9 +1170,7 @@ void SJNES::runFrame()
                 mmc5WaveWindow->pushChannels(dbg);
         };
 
-        const qint64 minFreeBytes = is_stereo ? 8192 : 4096;
-
-        if (outputAudio && audio_sink->bytesFree() < minFreeBytes)
+        if (outputAudio && audio_sink->bytesFree() < 4096)
         {
             return;
         }
@@ -1714,7 +1636,7 @@ void SJNES::restartAudioSink()
 
     // Tăng buffer để khi kéo/di chuyển cửa sổ, audio còn dữ liệu dự phòng nên đỡ khựng/rè hơn.
     // Gốc là 32768.
-    audio_sink->setBufferSize(32768);
+    audio_sink->setBufferSize(65536);
 
     audio_device = audio_sink->start();
 
