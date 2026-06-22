@@ -1,0 +1,11 @@
+# Visual Studio cache và file cấu hình cá nhân
+.vs/
+x64/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Thư mục build đầu ra
+bin/
+obj/
