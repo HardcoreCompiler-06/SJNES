@@ -24,6 +24,8 @@ public:
 
     float GetExpansionAudio() override;
     void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) override;
+    void GetS5BDebugPeriods(float& ch1, float& ch2, float& ch3) const;
+    void GetS5BDebugDuty(float& ch1, float& ch2, float& ch3) const;
 
     int GetMirrorMode() const { return mirrorMode; }
     bool IsPrg6000RamSelected() const { return prg6000RamSelected; }

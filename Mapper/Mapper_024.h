@@ -14,6 +14,8 @@ public:
     void reset() override;
     MIRROR mirror() override;
     void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) override;
+    void GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const;
+    void GetVRC6DebugDuty(float& ch1, float& ch2) const;
     void irqStep() override;
     bool irqState() override;
     void irqClear() override;

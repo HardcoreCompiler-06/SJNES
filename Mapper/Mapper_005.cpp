@@ -51,6 +51,19 @@ void Mapper_005::reset()
     irqStatus = 0;
     irqEnable = false;
     irqPending = false;
+    for (int i = 0; i < 2; i++)
+    {
+        mmc5Pulse[i].control = 0;
+        mmc5Pulse[i].timer = 0;
+        mmc5Pulse[i].counter = 0;
+        mmc5Pulse[i].sequence = 0;
+        mmc5Pulse[i].enabled = false;
+        mmc5Pulse[i].sample = 0.0f;
+    }
+
+    mmc5Status = 0;
+    mmc5PcmDac = 0;
+    mmc5PcmSample = 0.0f;
 }
 
 uint32_t Mapper_005::GetPrg8Count() const
@@ -238,6 +251,42 @@ bool Mapper_005::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
     {
         switch (addr)
         {
+            // MMC5 expansion audio
+        // Pulse 1: $5000, $5002, $5003
+        case 0x5000:
+        case 0x5002:
+        case 0x5003:
+            WriteMMC5PulseRegister(0, addr, data);
+            return false;
+
+            // Pulse 2: $5004, $5006, $5007
+        case 0x5004:
+        case 0x5006:
+        case 0x5007:
+            WriteMMC5PulseRegister(1, addr, data);
+            return false;
+
+            // PCM / DAC output
+        case 0x5011:
+            mmc5PcmDac = data & 0x7F;
+            mmc5PcmSample = (float(mmc5PcmDac) - 64.0f) / 64.0f;
+            return false;
+
+            // MMC5 audio enable
+        case 0x5015:
+            mmc5Status = data;
+
+            mmc5Pulse[0].enabled = (data & 0x01) != 0;
+            mmc5Pulse[1].enabled = (data & 0x02) != 0;
+
+            if (!mmc5Pulse[0].enabled)
+                mmc5Pulse[0].sample = 0.0f;
+
+            if (!mmc5Pulse[1].enabled)
+                mmc5Pulse[1].sample = 0.0f;
+
+            return false;
+
         case 0x5100:
             prgMode = data & 0x03;
             return false;
@@ -482,8 +531,27 @@ bool Mapper_005::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr)
 
 bool Mapper_005::cpuReadRegister(uint16_t addr, uint8_t& data)
 {
+    if (addr >= 0x5C00 && addr <= 0x5FFF)
+    {
+        data = exRam[addr & 0x03FF];
+        return true;
+    }
+
     switch (addr)
     {
+    case 0x5015:
+    {
+        data = 0x00;
+
+        if (mmc5Pulse[0].enabled)
+            data |= 0x01;
+
+        if (mmc5Pulse[1].enabled)
+            data |= 0x02;
+
+        return true;
+    }
+
     case 0x5204:
         data = irqStatus;
         irqStatus &= ~0x80;
@@ -491,18 +559,17 @@ bool Mapper_005::cpuReadRegister(uint16_t addr, uint8_t& data)
         return true;
 
     case 0x5205:
-        // Multiplier result low byte
         data = mulResult & 0xFF;
         return true;
 
     case 0x5206:
-        // Multiplier result high byte
         data = (mulResult >> 8) & 0xFF;
         return true;
     }
 
     return false;
 }
+
 void Mapper_005::NotifyScanline(int scanline)
 {
     // Bit 6: PPU đang trong vùng render frame
@@ -552,6 +619,148 @@ MIRROR Mapper_005::mirror()
         return MIRROR::ONESCREEN_HI;
 
     return MIRROR::HARDWARE;
+}
+
+void Mapper_005::WriteMMC5PulseRegister(int ch, uint16_t addr, uint8_t data)
+{
+    MMC5Pulse& p = mmc5Pulse[ch & 1];
+
+    switch (addr)
+    {
+    case 0x5000:
+    case 0x5004:
+        p.control = data;
+        break;
+
+    case 0x5002:
+    case 0x5006:
+        p.timer = (p.timer & 0x0700) | data;
+        break;
+
+    case 0x5003:
+    case 0x5007:
+        p.timer = (p.timer & 0x00FF) | ((data & 0x07) << 8);
+        p.sequence = 0;
+        p.counter = p.timer + 1;
+        break;
+    }
+}
+
+float Mapper_005::GetPulseOutput(const MMC5Pulse& p) const
+{
+    if (!p.enabled)
+        return 0.0f;
+
+    if (p.timer < 8)
+        return 0.0f;
+
+    uint8_t volume = p.control & 0x0F;
+
+    if (volume == 0)
+        return 0.0f;
+
+    uint8_t duty = (p.control >> 6) & 0x03;
+
+    static const uint8_t dutyTable[4][8] =
+    {
+        {0,1,0,0,0,0,0,0}, // 12.5%
+        {0,1,1,0,0,0,0,0}, // 25%
+        {0,1,1,1,1,0,0,0}, // 50%
+        {1,0,0,1,1,1,1,1}  // 25% inverted
+    };
+
+    float amp = float(volume) / 15.0f;
+
+    return dutyTable[duty][p.sequence & 7] ? amp : -amp;
+}
+
+void Mapper_005::ClockAudio()
+{
+    for (int i = 0; i < 2; i++)
+    {
+        MMC5Pulse& p = mmc5Pulse[i];
+
+        if (!p.enabled || p.timer < 8)
+        {
+            p.sample = 0.0f;
+            continue;
+        }
+
+        if (p.counter == 0)
+        {
+            p.counter = p.timer + 1;
+            p.sequence = (p.sequence + 1) & 0x07;
+        }
+        else
+        {
+            p.counter--;
+        }
+
+        p.sample = GetPulseOutput(p);
+    }
+}
+
+float Mapper_005::GetMMC5Pulse1Sample() const
+{
+    return mmc5Pulse[0].sample;
+}
+
+float Mapper_005::GetMMC5Pulse2Sample() const
+{
+    return mmc5Pulse[1].sample;
+}
+
+float Mapper_005::GetMMC5PCMSample() const
+{
+    return mmc5PcmSample;
+}
+
+void Mapper_005::GetMMC5DebugChannels(float& pulse1, float& pulse2, float& pcm) const
+{
+    pulse1 = GetMMC5Pulse1Sample();
+    pulse2 = GetMMC5Pulse2Sample();
+    pcm = GetMMC5PCMSample();
+}
+
+void Mapper_005::GetMMC5DebugPeriods(float& pulse1, float& pulse2) const
+{
+    constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
+    auto calc = [](const MMC5Pulse& p) -> float {
+        constexpr float CPU_TO_SAMPLE_LOCAL = 44100.0f / 1789773.0f;
+        if (!p.enabled || p.timer < 8)
+            return 0.0f;
+
+        // MMC5 pulse dùng duty 8 bước, clock theo CPU cycle trong SJNES.
+        float samples = float(p.timer + 1) * 8.0f * CPU_TO_SAMPLE_LOCAL;
+        if (samples < 2.0f) return 0.0f;
+        if (samples > 8192.0f) return 8192.0f;
+        return samples;
+        };
+
+    pulse1 = calc(mmc5Pulse[0]);
+    pulse2 = calc(mmc5Pulse[1]);
+}
+
+
+void Mapper_005::GetMMC5DebugDuty(float& pulse1, float& pulse2) const
+{
+    auto calc = [](const MMC5Pulse& p) -> float {
+        if (!p.enabled || p.timer < 8)
+            return -1.0f;
+        return float((p.control >> 6) & 0x03);
+    };
+
+    pulse1 = calc(mmc5Pulse[0]);
+    pulse2 = calc(mmc5Pulse[1]);
+}
+
+float Mapper_005::GetExpansionAudio()
+{
+    float p1 = GetMMC5Pulse1Sample();
+    float p2 = GetMMC5Pulse2Sample();
+    float pcm = GetMMC5PCMSample();
+
+    return (p1 * 0.12f) + (p2 * 0.12f) + (pcm * 0.10f);
 }
 
 QString Mapper_005::GetDebugInfo()

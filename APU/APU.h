@@ -27,6 +27,83 @@ struct AudioDebugChannels {
     float vrc7Wave4 = 0.0f;
     float vrc7Wave5 = 0.0f;
     float vrc7Wave6 = 0.0f;
+
+    float mmc5Pulse1 = 0.0f;
+    float mmc5Pulse2 = 0.0f;
+    float mmc5PCM = 0.0f;
+
+    float n163Wave1 = 0.0f;
+    float n163Wave2 = 0.0f;
+    float n163Wave3 = 0.0f;
+    float n163Wave4 = 0.0f;
+    float n163Wave5 = 0.0f;
+    float n163Wave6 = 0.0f;
+    float n163Wave7 = 0.0f;
+    float n163Wave8 = 0.0f;
+
+
+    // Period hint tính theo đơn vị: số audio sample / 1 chu kỳ sóng.
+    // Dùng cho AudioWaveWindow để khóa pha theo timer thật, tránh trôi ngang.
+    float pulse1Period = 0.0f;
+    float pulse2Period = 0.0f;
+    float trianglePeriod = 0.0f;
+    float noisePeriod = 0.0f;
+    float dmcPeriod = 0.0f;
+
+    float vrc6Pulse1Period = 0.0f;
+    float vrc6Pulse2Period = 0.0f;
+    float vrc6SawPeriod = 0.0f;
+
+    float s5bToneAPeriod = 0.0f;
+    float s5bToneBPeriod = 0.0f;
+    float s5bToneCPeriod = 0.0f;
+
+    float vrc7Wave1Period = 0.0f;
+    float vrc7Wave2Period = 0.0f;
+    float vrc7Wave3Period = 0.0f;
+    float vrc7Wave4Period = 0.0f;
+    float vrc7Wave5Period = 0.0f;
+    float vrc7Wave6Period = 0.0f;
+
+    // VRC7 carrier phase hint, lấy từ emu2413 pg_phase của carrier slot.
+    // 0.0..1.0 là một vòng phase; AudioWaveWindow dùng để neo VRC7 theo chip thật,
+    // không bắt zero-crossing từ waveform nữa.
+    float vrc7Wave1Phase = 0.0f;
+    float vrc7Wave2Phase = 0.0f;
+    float vrc7Wave3Phase = 0.0f;
+    float vrc7Wave4Phase = 0.0f;
+    float vrc7Wave5Phase = 0.0f;
+    float vrc7Wave6Phase = 0.0f;
+
+    float mmc5Pulse1Period = 0.0f;
+    float mmc5Pulse2Period = 0.0f;
+
+    float n163Period1 = 0.0f;
+    float n163Period2 = 0.0f;
+    float n163Period3 = 0.0f;
+    float n163Period4 = 0.0f;
+    float n163Period5 = 0.0f;
+    float n163Period6 = 0.0f;
+    float n163Period7 = 0.0f;
+    float n163Period8 = 0.0f;
+
+    // Chip-shape hint: dùng để AudioWaveWindow vẽ sóng vuông/tam giác bám sát timer+duty thật,
+    // không bắt nhầm cạnh waveform lúc note vừa nổi lên.
+    // Pulse duty dùng raw code 0..3 theo duty table NES; -1 = không hợp lệ/tắt.
+    float pulse1Duty = -1.0f;
+    float pulse2Duty = -1.0f;
+    // Triangle phase raw 0..31; hiện dùng để tham khảo/debug, renderer vẽ theo shape chuẩn 32 bước.
+    float trianglePhase = -1.0f;
+
+    float vrc6Pulse1Duty = -1.0f;
+    float vrc6Pulse2Duty = -1.0f;
+
+    float s5bToneADuty = 0.5f;
+    float s5bToneBDuty = 0.5f;
+    float s5bToneCDuty = 0.5f;
+
+    float mmc5Pulse1Duty = -1.0f;
+    float mmc5Pulse2Duty = -1.0f;
 };
 class Bus;
 
