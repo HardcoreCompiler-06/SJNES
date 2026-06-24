@@ -1,0 +1,15 @@
+.vs/
+x64/
+*.ipch
+*.vsidx
+*.db
+*.user
+*.slnx
+SJNES/ipch/
+*emu2413.c
+*emu2413.h
+*logBuffer.h
+*ico
+*rc
+*resource1.h
+SJNES/
