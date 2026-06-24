@@ -11,6 +11,7 @@
 #include "Mapper_005.h"
 #include "Mapper_007.h"
 #include "Mapper_009.h"
+#include "Mapper_011.h"
 #include "Mapper_015.h"
 #include "Mapper_018.h"
 #include "Mapper_019.h"
@@ -146,6 +147,7 @@ bool Cartridge::LoadFromData(const std::vector<uint8_t>& romData)
     case 5:   pMapper = std::make_shared<Mapper_005>(nPRGBanks, nCHRBanks); break;
     case 7:   pMapper = std::make_shared<Mapper_007>(nPRGBanks, nCHRBanks); break;
     case 9:   pMapper = std::make_shared<Mapper_009>(nPRGBanks, nCHRBanks); break;
+    case 11:  pMapper = std::make_shared<Mapper_011>(nPRGBanks, nCHRBanks); break;
     case 15:  pMapper = std::make_shared<Mapper_015>(nPRGBanks, nCHRBanks); break;
     case 18:  pMapper = std::make_shared<Mapper_018>(nPRGBanks, nCHRBanks); break;
     case 19:  pMapper = std::make_shared<Mapper_019>(nPRGBanks, nCHRBanks); break;
