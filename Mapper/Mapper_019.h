@@ -27,7 +27,6 @@ public:
     }
 
     // Âm thanh Namco 163
-    void ClockCpu(int cycles) override;
     float GetExpansionAudio() override;
 
     void irqStep() override;
@@ -36,11 +35,13 @@ public:
         float& ch1, float& ch2, float& ch3, float& ch4,
         float& ch5, float& ch6, float& ch7, float& ch8
     );
+    void ClockCpu(int cycles);
 
     void GetN163DebugPeriods(
-        float& ch1, float& ch2, float& ch3, float& ch4,
-        float& ch5, float& ch6, float& ch7, float& ch8
+        float& p1, float& p2, float& p3, float& p4,
+        float& p5, float& p6, float& p7, float& p8
     );
+
 private:
 
     void UpdateNametableMirror();

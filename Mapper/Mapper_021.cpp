@@ -183,13 +183,6 @@ void Mapper_021::irqStep() {
         if (nIRQCounter == 0xFF) {
             nIRQCounter = nIRQReload;
             bIRQActive = true;
-            static int irqLog = 0;
-            if (irqLog++ < 10) {
-                std::string s = "IRQ FIRED! reload=" + std::to_string(nIRQReload) + " CHR: ";
-                for (int i = 0; i < 8; i++)
-                    s += std::to_string(nCHRBankSelect[i]) + " ";
-                LogPrint(s);
-            }
 
         }
         else {
