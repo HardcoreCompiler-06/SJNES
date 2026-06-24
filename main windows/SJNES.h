@@ -1,5 +1,7 @@
 #pragma once
 #include <QtWidgets/QMainWindow>
+#include "NSFFile.h"
+#include <vector>
 #include "ui_SJNES.h"
 #include <QTimer>
 #include <QAudioSink>
@@ -18,6 +20,10 @@
 #include <QList>
 #include <QAction>
 #include <QCloseEvent>
+#include "Mapper_024.h"
+#include "Mapper_069.h"
+#include "Mapper_085.h"
+#include "Mapper_005.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 class SJNES : public QMainWindow
@@ -41,6 +47,29 @@ private slots:
     void runFrame();
 
 private:
+    void restartCurrentNSFTrack();
+    void nextNSFTrack();
+    void previousNSFTrack();
+    std::unique_ptr<Mapper_024> nsfVRC6;
+    std::unique_ptr<Mapper_069> nsfS5B;
+    std::unique_ptr<Mapper_085> nsfVRC7;
+    std::unique_ptr<Mapper_005> nsfMMC5;
+    NSFFile currentNSF;
+    int currentNSFSong = 1;
+    double nsfAudioAccumulator = 0.0;
+
+    void loadNSFFile(const QString& fileName);
+    void runNSFFrame();
+
+    int callNSFRoutine(
+        uint16_t address,
+        uint8_t a,
+        uint8_t x,
+        int maxCpuCycles,
+        std::vector<float>& audioSamples
+    );
+
+    void pushNSFAudioSample(std::vector<float>& audioSamples);
     QList<QAction*> recentRomActions;
     void addRecentRom(const QString& filePath);
     void updateRecentRomMenu();

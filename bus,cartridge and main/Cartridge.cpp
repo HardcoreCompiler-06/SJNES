@@ -292,8 +292,6 @@ bool Cartridge::cpuWrite(uint16_t addr, uint8_t data)
 
             return true;
         }
-
-        // Các mapper khác giữ logic cũ
         uint32_t ramOffset = addr & 0x1FFF;
 
         if (pMapper)

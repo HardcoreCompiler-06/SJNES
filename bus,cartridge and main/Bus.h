@@ -1,11 +1,13 @@
 #pragma once
+#include <array>
+#include <vector>
 #include <cstdint>
 #include <memory>
 #include "PPU.h"
 #include "APU.h"
 #include "Cartridge.h"
 #include "CPU6502.h"
-
+#include <functional>
 class Bus {
 public:
     Bus() {
@@ -13,6 +15,79 @@ public:
         for (int i = 0; i < 2048; i++) {
             ram[i] = 0xFF;
         }
+    }
+
+    bool nsfMode = false;
+    std::array<uint8_t, 65536> nsfMemory{};
+    bool nsfBankMode = false;
+    std::array<uint8_t, 8> nsfBanks{};
+    std::vector<uint8_t> nsfBankData;
+    std::function<bool(uint16_t, uint8_t)> nsfExpansionWrite;
+    std::function<bool(uint16_t, uint8_t&)> nsfExpansionRead;
+
+    void EnableNSFMode(
+        uint16_t loadAddress,
+        const std::vector<uint8_t>& data,
+        const uint8_t* initialBanks = nullptr
+
+    )
+    {
+        nsfMode = true;
+        nsfExpansionWrite = nullptr;
+        nsfMemory.fill(0x00);
+
+        nsfBankMode = false;
+        nsfBanks.fill(0x00);
+        nsfBankData.clear();
+
+        bool useBankSwitching = false;
+
+        if (initialBanks)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                if (initialBanks[i] != 0)
+                {
+                    useBankSwitching = true;
+                    break;
+                }
+            }
+        }
+
+        if (useBankSwitching)
+        {
+            nsfBankMode = true;
+
+            int padding = loadAddress & 0x0FFF;
+
+            nsfBankData.assign(padding, 0x00);
+            nsfBankData.insert(nsfBankData.end(), data.begin(), data.end());
+
+            for (int i = 0; i < 8; i++)
+                nsfBanks[i] = initialBanks[i];
+        }
+
+        for (size_t i = 0; i < data.size(); i++)
+        {
+            uint32_t addr = static_cast<uint32_t>(loadAddress) + static_cast<uint32_t>(i);
+
+            if (addr <= 0xFFFF)
+                nsfMemory[addr] = data[i];
+            else
+                break;
+        }
+    }
+
+    void DisableNSFMode()
+    {
+        nsfMode = false;
+        nsfMemory.fill(0x00);
+
+        nsfBankMode = false;
+        nsfBanks.fill(0x00);
+        nsfBankData.clear();
+        nsfExpansionWrite = nullptr;
+        nsfExpansionRead = nullptr;
     }
 
     uint8_t controller_state = 0x00;
@@ -48,6 +123,28 @@ public:
     }
 
     void cpuWrite(uint16_t addr, uint8_t data) {
+        if (nsfMode && nsfBankMode && addr >= 0x5FF8 && addr <= 0x5FFF)
+        {
+            nsfBanks[addr - 0x5FF8] = data;
+            return;
+        }
+
+        // Expansion audio NSF: VRC6 / VRC7 / S5B / MMC5
+        if (nsfMode && nsfExpansionWrite)
+        {
+            if (nsfExpansionWrite(addr, data))
+                return;
+        }
+
+        if (nsfMode && addr >= 0x4020)
+        {
+            if (!nsfBankMode || addr < 0x8000)
+                nsfMemory[addr] = data;
+
+            return;
+        }
+
+
         if (cart != nullptr && cart->cpuWrite(addr, data)) {
             return;
         }
@@ -87,6 +184,33 @@ public:
 
     uint8_t cpuRead(uint16_t addr) {
         uint8_t data = 0x00;
+
+        if (nsfMode && nsfBankMode && addr >= 0x8000)
+        {
+            int slot = (addr - 0x8000) >> 12;
+            int bank = nsfBanks[slot];
+
+            uint32_t offset =
+                static_cast<uint32_t>(bank) * 0x1000 +
+                static_cast<uint32_t>(addr & 0x0FFF);
+
+            if (offset < nsfBankData.size())
+                return nsfBankData[offset];
+
+            return 0x00;
+        }
+
+        if (nsfMode && nsfExpansionRead)
+        {
+            if (nsfExpansionRead(addr, data))
+                return data;
+        }
+
+        if (nsfMode && addr >= 0x4020)
+        {
+            return nsfMemory[addr];
+        }
+
         if (cart != nullptr && cart->cpuRead(addr, data)) {
             return data;
         }

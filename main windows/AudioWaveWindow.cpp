@@ -1179,6 +1179,7 @@ void AudioWaveWindow::paintGL()
 
         bool isNoiseDMC = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && (c == 3 || c == 4));
         bool isVrc6Saw = (mode == WaveMode::VRC6 && c == 7);
+        bool isTriangle = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && c == 2);
 
         if (range > 0.02f && !isNoiseDMC)
         {
@@ -1257,7 +1258,73 @@ void AudioWaveWindow::paintGL()
                 }
             }
         }
+        else if (isTriangle)
+        {
+            QVector<float> idxs;
+            QVector<float> slopes;
+            idxs.reserve(128);
+            slopes.reserve(128);
 
+            int scanStart = std::max(1, n - visibleSamples * 4);
+            int scanEnd = n - 2;
+
+            float minSlope = std::max(0.0001f, range * 0.05f);
+
+            for (int si = scanStart + 1; si <= scanEnd; si++)
+            {
+                float prev = copy[c][si - 1];
+                float cur = copy[c][si];
+
+                // Triangle: rising crossing qua level giữa
+                if (prev < triggerLevel && cur >= triggerLevel)
+                {
+                    float slope = cur - prev;
+
+                    if (slope >= minSlope)
+                    {
+                        float frac = (triggerLevel - prev) / slope;
+                        frac = std::clamp(frac, 0.0f, 1.0f);
+
+                        idxs.push_back(float(si - 1) + frac);
+                        slopes.push_back(slope);
+                    }
+                }
+            }
+
+            qint64 absBase = (qint64)pushedCopy[c] - (qint64)n;
+            float hint = hintCopy[c];
+
+            bool locked = updateHardPeriodAnchor(
+                genericTrigLock[c],
+                absBase,
+                idxs,
+                slopes,
+                hint,
+                8.0f,
+                8192.0f,
+                0.06f
+            );
+
+            if (locked && genericTrigLock[c].period >= 8.0f)
+            {
+                float desiredStart = float(n - visibleSamples);
+                float edge = predictEdgeNearStart(
+                    genericTrigLock[c],
+                    absBase,
+                    desiredStart,
+                    1.0f,
+                    float(n - visibleSamples - 2)
+                );
+
+                if (edge >= 0.0f)
+                    fStart = edge;
+            }
+            else if (!idxs.isEmpty())
+            {
+                // Fallback nếu chưa có period hint
+                fStart = idxs.back();
+            }
+        }
         fStart = std::clamp(fStart, 0.0f, float(n - visibleSamples - 2));
 
         float amp = panelH * 0.45f;
