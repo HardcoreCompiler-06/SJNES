@@ -5,7 +5,12 @@ x64/
 *.suo
 *.userosscache
 *.sln.docstates
+*.ico
+*emu2413.c
+*emu2413.h
+*logBuffer.h
 
 # Thư mục build đầu ra
 bin/
 obj/
+SJNES/
