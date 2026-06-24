@@ -6,3 +6,10 @@ x64/
 *.user
 *.slnx
 SJNES/ipch/
+*emu2413.c
+*emu2413.h
+*logBuffer.h
+*ico
+*rc
+*resource1.h
+SJNES/
