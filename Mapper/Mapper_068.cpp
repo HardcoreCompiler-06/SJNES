@@ -1,5 +1,4 @@
 #include "Mapper_068.h"
-#include <QDebug>
 
 Mapper_068::Mapper_068(uint8_t prgBanks, uint8_t chrBanks)
     : Mapper(prgBanks, chrBanks)
@@ -89,13 +88,6 @@ bool Mapper_068::cpuMapWrite(
     if (addr < 0x8000)
         return false;
 
-    qDebug()
-        << "[068]"
-        << Qt::hex
-        << addr
-        << "DATA="
-        << data;
-
     switch (addr & 0xF000)
     {
     case 0x8000:
@@ -126,19 +118,11 @@ bool Mapper_068::cpuMapWrite(
         // SỬA Ở ĐÂY: Phải OR với 0x80 theo spec của mạch Sunsoft-4
         ntRegs[0] = data | 0x80;
 
-        qDebug()
-            << "NT0="
-            << ntRegs[0];
-
         break;
 
     case 0xD000:
         // SỬA Ở ĐÂY: Phải OR với 0x80
         ntRegs[1] = data | 0x80;
-
-        qDebug()
-            << "NT1="
-            << ntRegs[1];
 
         break;
 
@@ -149,12 +133,6 @@ bool Mapper_068::cpuMapWrite(
 
         useChrForNametables =
             (data & 0x10);
-
-        qDebug()
-            << "MIR="
-            << mirrorMode
-            << "CHRNT="
-            << useChrForNametables;
 
         break;
 

@@ -4,10 +4,14 @@
 #include <QFont>
 #include <QMutexLocker>
 #include <QOpenGLContext>
+#include <QDebug>
+#include <QApplication>
 
 GpuScreenWidget::GpuScreenWidget(QWidget* parent)
     : QOpenGLWidget(parent)
 {
+    qDebug() << "GpuScreenWidget constructor, parent=" << parent;
+    qDebug() << "QApplication instance=" << QApplication::instance();
     setAutoFillBackground(false);
 }
 
