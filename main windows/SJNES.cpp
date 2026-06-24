@@ -106,8 +106,8 @@ static void ShowQuickStartDialog(QWidget* parent, bool forceShow = false)
         "5. Debug:\n"
         "   Menu Debug có Audio Waveform, Mapper Viewer, Sprite Viewer và Audio Channel Debug.\n\n"
 		"6. NSF Player:\n"
-		"   F3 = previous track\n"
-		"   F4 = next track\n"
+		"   F3 = next track\n"
+		"   F4 = revious track\n"
 		"   SPACE = play/pause\n\n"
         "Lưu ý: SJNES là phần mềm giả lập NES đang trong quá trình phát triển, được thực hiện với mục đích học tập và nghiên cứu.\n"
         "Phần mềm không bao gồm, không lưu trữ, không phân phối và không cung cấp liên kết tải ROM, game có bản quyền của Nintendo hoặc bất kỳ bên thứ ba nào."
@@ -263,9 +263,9 @@ SJNES::SJNES(QWidget* parent)
 
             infoText->setHtml(
                 "<h3>SJNES Emulator</h3>"
-                "<p><b>phiên bản:</b> 2.0</p>"
+                "<p><b>phiên bản:</b> 2.1</p>"
                 "<p><b>lần đầu phát hành:</b> 9/4/2026</p>"
-                "<p><b>ngày cập nhật phiên bản mới nhất:18/6/2026"
+                "<p><b>ngày cập nhật phiên bản mới nhất:21/6/2026</b>"
                 "<p><b>Developer:</b> Nguyễn Quyết Chiến, Nguyễn Dức An, Phạm Đăng Hoàn</p>"
                 "<p><b>ngôn ngữ lập trình:</b> C++ / Qt / C</p>"
                 "<p><b>rom hỗ trợ:</b> .nes, .zip</p>"
@@ -407,12 +407,6 @@ SJNES::SJNES(QWidget* parent)
         });
 
     connect(ui.actVRC6, &QAction::toggled, this, [this](bool checked) {
-        if (nes_bus.nsfMode && nsfVRC6)
-        {
-            nsfVRC6->muteVRC6 = !checked;
-            return;
-        }
-
         if (!nes_bus.cart || !nes_bus.cart->pMapper)
             return;
 
@@ -822,11 +816,7 @@ void SJNES::loadRomFile(const QString& fileName)
 {
     nes_bus.nsfMode = false;
     nes_bus.DisableNSFMode();
-
     nsfVRC6.reset();
-    nsfS5B.reset();
-    nsfVRC7.reset();
-    nsfMMC5.reset();
     if (fileName.isEmpty())
         return;
 
@@ -951,30 +941,33 @@ void SJNES::loadNSFFile(const QString& fileName)
 
     nes_bus.cart = nullptr;
     nes_bus.n_apu.reset();
-
     nes_bus.EnableNSFMode(
         info.loadAddress,
         currentNSF.ProgramData(),
         info.bankSwitch
     );
-
     nsfVRC6.reset();
-    nsfS5B.reset();
-    nsfVRC7.reset();
-    nsfMMC5.reset();
-
     nes_bus.nsfExpansionWrite = nullptr;
 
-    const bool useVRC6 = currentNSF.UsesVRC6();
-    const bool useS5B  = currentNSF.UsesS5B();
-    const bool useVRC7 = currentNSF.UsesVRC7();
-    const bool useMMC5 = currentNSF.UsesMMC5();
-
-    if (useVRC6)
+    // Nếu là NSF VRC6 thì chỉ mở cửa sổ VRC6.
+    // Vì cửa sổ VRC6 của anh đã có sẵn 5 sóng NES + 3 sóng VRC6 rồi.
+    if (currentNSF.UsesVRC6())
     {
+        if (nesWaveWindow)
+            nesWaveWindow->hide();
+
         nsfVRC6 = std::make_unique<Mapper_024>(1, 1);
         nsfVRC6->reset();
-        nsfVRC6->muteVRC6 = !ui.actVRC6->isChecked();
+        nsfVRC6->muteVRC6 = false;
+
+        nes_bus.nsfExpansionWrite = [this](uint16_t addr, uint8_t data)
+            {
+                if (nsfVRC6)
+                {
+                    uint32_t mapped_addr = 0;
+                    nsfVRC6->cpuMapWrite(addr, mapped_addr, data);
+                }
+            };
 
         if (!vrc6WaveWindow)
         {
@@ -983,7 +976,7 @@ void SJNES::loadNSFFile(const QString& fileName)
 
             connect(vrc6WaveWindow, &QObject::destroyed, this, [this]() {
                 vrc6WaveWindow = nullptr;
-            });
+                });
         }
 
         vrc6WaveWindow->show();
@@ -992,102 +985,9 @@ void SJNES::loadNSFFile(const QString& fileName)
 
         ui.txtConsole->appendPlainText("NSF VRC6 audio: ON");
     }
-
-    if (useS5B)
-    {
-        nsfS5B = std::make_unique<Mapper_069>(1, 1);
-        nsfS5B->reset();
-
-        if (!s5bWaveWindow)
-        {
-            s5bWaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::S5B, nullptr);
-            s5bWaveWindow->setAttribute(Qt::WA_DeleteOnClose);
-
-            connect(s5bWaveWindow, &QObject::destroyed, this, [this]() {
-                s5bWaveWindow = nullptr;
-            });
-        }
-
-        s5bWaveWindow->show();
-        s5bWaveWindow->raise();
-        s5bWaveWindow->activateWindow();
-
-        ui.txtConsole->appendPlainText("NSF S5B audio: ON");
-    }
-
-    if (useVRC7)
-    {
-        nsfVRC7 = std::make_unique<Mapper_085>(1, 1);
-        nsfVRC7->reset();
-
-        if (!vrc7WaveWindow)
-        {
-            vrc7WaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::VRC7, nullptr);
-            vrc7WaveWindow->setAttribute(Qt::WA_DeleteOnClose);
-
-            connect(vrc7WaveWindow, &QObject::destroyed, this, [this]() {
-                vrc7WaveWindow = nullptr;
-            });
-        }
-
-        vrc7WaveWindow->show();
-        vrc7WaveWindow->raise();
-        vrc7WaveWindow->activateWindow();
-
-        ui.txtConsole->appendPlainText("NSF VRC7 audio: ON");
-    }
-
-    if (useMMC5)
-    {
-        nsfMMC5 = std::make_unique<Mapper_005>(1, 1);
-        nsfMMC5->reset();
-
-        if (!mmc5WaveWindow)
-        {
-            mmc5WaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::MMC5, nullptr);
-            mmc5WaveWindow->setAttribute(Qt::WA_DeleteOnClose);
-
-            connect(mmc5WaveWindow, &QObject::destroyed, this, [this]() {
-                mmc5WaveWindow = nullptr;
-            });
-        }
-
-        mmc5WaveWindow->show();
-        mmc5WaveWindow->raise();
-        mmc5WaveWindow->activateWindow();
-
-        ui.txtConsole->appendPlainText("NSF MMC5 audio: ON");
-    }
-    nes_bus.nsfExpansionRead = nullptr;
-
-    if (nsfMMC5)
-    {
-        nes_bus.nsfExpansionRead = [this](uint16_t addr, uint8_t& data) -> bool
-            {
-                if (!nsfMMC5)
-                    return false;
-
-                if (addr == 0x5015 ||
-                    addr == 0x5204 ||
-                    addr == 0x5205 ||
-                    addr == 0x5206 ||
-                    (addr >= 0x5C00 && addr <= 0x5FFF))
-                {
-                    return nsfMMC5->cpuReadRegister(addr, data);
-                }
-
-                return false;
-            };
-    }
-    const bool hasExpansionWindow = useVRC6 || useS5B || useVRC7 || useMMC5;
-
-    if (hasExpansionWindow)
-    {
-        if (nesWaveWindow)
-            nesWaveWindow->hide();
-    }
     else
     {
+        // NSF thường chỉ có 5 kênh NES APU thì mở cửa sổ NES.
         if (!nesWaveWindow)
         {
             nesWaveWindow = new AudioWaveWindow(AudioWaveWindow::WaveMode::NES, nullptr);
@@ -1095,92 +995,15 @@ void SJNES::loadNSFFile(const QString& fileName)
 
             connect(nesWaveWindow, &QObject::destroyed, this, [this]() {
                 nesWaveWindow = nullptr;
-            });
+                });
         }
 
         nesWaveWindow->show();
         nesWaveWindow->raise();
         nesWaveWindow->activateWindow();
+        ui.txtConsole->appendPlainText("NSF VRC6 audio: ON");
 
-        ui.txtConsole->appendPlainText("NSF APU audio: ON");
     }
-
-    if (nsfVRC6 || nsfS5B || nsfVRC7 || nsfMMC5)
-    {
-        nes_bus.nsfExpansionWrite = [this](uint16_t addr, uint8_t data) -> bool
-        {
-            uint32_t mapped_addr = 0;
-            static int nsfWriteLog = 0;
-
-            auto logWrite = [&](const char* chip)
-                {
-                    if (nsfWriteLog < 80)
-                    {
-                        nsfWriteLog++;
-
-                        ui.txtConsole->appendPlainText(
-                            QString("NSF %1 WRITE: $%2 = $%3")
-                            .arg(chip)
-                            .arg(addr, 4, 16, QChar('0'))
-                            .arg(data, 2, 16, QChar('0'))
-                            .toUpper()
-                        );
-                    }
-                };
-            // MMC5 audio: $5000-$5015
-            if (nsfMMC5)
-            {
-                if ((addr >= 0x5000 && addr <= 0x5015) ||
-                    addr == 0x5205 || addr == 0x5206)
-                {
-                    nsfMMC5->cpuMapWrite(addr, mapped_addr, data);
-                    return true;
-                }
-            }
-
-            // VRC6 audio: $9000-$B003
-            if (nsfVRC6)
-            {
-                if ((addr >= 0x9000 && addr <= 0x9003) ||
-                    (addr >= 0xA000 && addr <= 0xA003) ||
-                    (addr >= 0xB000 && addr <= 0xB003))
-                {
-                    nsfVRC6->cpuMapWrite(addr, mapped_addr, data);
-                    return true;
-                }
-            }
-
-            // VRC7 audio: $9010 = register, $9030 = data
-            if (nsfVRC7)
-            {
-                if (addr == 0x9010 || addr == 0x9030)
-                {
-                    nsfVRC7->cpuMapWrite(addr, mapped_addr, data);
-                    return true;
-                }
-            }
-
-            // Sunsoft 5B NSF:
-            // NSF writes $C000/$E000, while Mapper_069 usually uses $8000/$A000 internally.
-            if (nsfS5B)
-            {
-                if (addr >= 0xC000 && addr <= 0xDFFF)
-                {
-                    nsfS5B->cpuMapWrite(addr, mapped_addr, data);
-                    return true;
-                }
-
-                if (addr >= 0xE000 && addr <= 0xFFFF)
-                {
-                    nsfS5B->cpuMapWrite(addr, mapped_addr, data);
-                    return true;
-                }
-            }
-
-            return false;
-        };
-    }
-
     nes_cpu.reset();
 
     ui.txtConsole->appendPlainText("===== NSF PLAYER MODE =====");
@@ -1225,13 +1048,13 @@ void SJNES::loadNSFFile(const QString& fileName)
 
     uint8_t songIndex = static_cast<uint8_t>(currentNSFSong - 1);
 
-    // Enable all 5 APU channels: Pulse1, Pulse2, Triangle, Noise, DMC
+    // Bật toàn bộ 5 kênh APU: Pulse1, Pulse2, Triangle, Noise, DMC
     nes_bus.cpuWrite(0x4015, 0x1F);
 
-    // Basic frame counter
+    // Frame counter cơ bản
     nes_bus.cpuWrite(0x4017, 0x40);
 
-    callNSFRoutine(info.initAddress, songIndex, 0, 200000, dummyAudio);
+    int initCycles = callNSFRoutine(info.initAddress, songIndex, 0, 200000, dummyAudio);
 
     timer->start(1);
     ui.actPause->setText("Dừng (Pause)");
@@ -1375,7 +1198,11 @@ void SJNES::runFrame()
     static QElapsedTimer framePacer;
     static qint64 nextFrameNs = 0;
 
-    constexpr qint64 FRAME_NS = 16666667; // 60.000 FPS
+    constexpr double NES_CPU_HZ = 1789773.0;
+    constexpr double NES_PPU_CYCLES_PER_FRAME = 89342.0;
+    constexpr double NES_FPS = NES_CPU_HZ / (NES_PPU_CYCLES_PER_FRAME / 3.0);
+
+    const qint64 FRAME_NS = static_cast<qint64>(1000000000.0 / NES_FPS);
 
     if (!framePacer.isValid())
     {
@@ -1407,7 +1234,7 @@ void SJNES::runFrame()
         if (audio_samples.capacity() < 8192)
             audio_samples.reserve(8192);
 
-        const float MASTER_VOLUME = 1.8f;
+        const float MASTER_VOLUME = 0.95f;
 
         const bool outputAudio =
             !fastForward &&
@@ -1429,6 +1256,7 @@ void SJNES::runFrame()
         Mapper_019* n163 = nullptr;
         Mapper_085* vrc7 = nullptr;
         Mapper_069* s5b = nullptr;
+        Mapper_024* vrc6 = nullptr;
 
         if (nes_bus.cart && nes_bus.cart->pMapper)
         {
@@ -1437,6 +1265,7 @@ void SJNES::runFrame()
             n163 = dynamic_cast<Mapper_019*>(mapper);
             vrc7 = dynamic_cast<Mapper_085*>(mapper);
             s5b = dynamic_cast<Mapper_069*>(mapper);
+            vrc6 = dynamic_cast<Mapper_024*>(mapper);
         }
 
         auto pushWaveDebugIfNeeded = [&]() {
@@ -1457,6 +1286,17 @@ void SJNES::runFrame()
                     dbg.n163Wave7,
                     dbg.n163Wave8
                 );
+
+                n163->GetN163DebugPeriods(
+                    dbg.n163Period1,
+                    dbg.n163Period2,
+                    dbg.n163Period3,
+                    dbg.n163Period4,
+                    dbg.n163Period5,
+                    dbg.n163Period6,
+                    dbg.n163Period7,
+                    dbg.n163Period8
+                );
             }
             else if (mmc5)
             {
@@ -1464,6 +1304,16 @@ void SJNES::runFrame()
                     dbg.mmc5Pulse1,
                     dbg.mmc5Pulse2,
                     dbg.mmc5PCM
+                );
+
+                mmc5->GetMMC5DebugPeriods(
+                    dbg.mmc5Pulse1Period,
+                    dbg.mmc5Pulse2Period
+                );
+
+                mmc5->GetMMC5DebugDuty(
+                    dbg.mmc5Pulse1Duty,
+                    dbg.mmc5Pulse2Duty
                 );
             }
             else if (vrc7)
@@ -1476,6 +1326,24 @@ void SJNES::runFrame()
                     dbg.vrc7Wave5,
                     dbg.vrc7Wave6
                 );
+
+                vrc7->GetVrc7DebugPeriods(
+                    dbg.vrc7Wave1Period,
+                    dbg.vrc7Wave2Period,
+                    dbg.vrc7Wave3Period,
+                    dbg.vrc7Wave4Period,
+                    dbg.vrc7Wave5Period,
+                    dbg.vrc7Wave6Period
+                );
+
+                vrc7->GetVrc7DebugPhases(
+                    dbg.vrc7Wave1Phase,
+                    dbg.vrc7Wave2Phase,
+                    dbg.vrc7Wave3Phase,
+                    dbg.vrc7Wave4Phase,
+                    dbg.vrc7Wave5Phase,
+                    dbg.vrc7Wave6Phase
+                );
             }
             else if (s5b)
             {
@@ -1483,6 +1351,37 @@ void SJNES::runFrame()
                     dbg.s5bToneA,
                     dbg.s5bToneB,
                     dbg.s5bToneC
+                );
+
+                s5b->GetS5BDebugPeriods(
+                    dbg.s5bToneAPeriod,
+                    dbg.s5bToneBPeriod,
+                    dbg.s5bToneCPeriod
+                );
+
+                s5b->GetS5BDebugDuty(
+                    dbg.s5bToneADuty,
+                    dbg.s5bToneBDuty,
+                    dbg.s5bToneCDuty
+                );
+            }
+            else if (vrc6)
+            {
+                vrc6->GetExpansionDebugChannels(
+                    dbg.vrc6Pulse1,
+                    dbg.vrc6Pulse2,
+                    dbg.vrc6Saw
+                );
+
+                vrc6->GetVRC6DebugPeriods(
+                    dbg.vrc6Pulse1Period,
+                    dbg.vrc6Pulse2Period,
+                    dbg.vrc6SawPeriod
+                );
+
+                vrc6->GetVRC6DebugDuty(
+                    dbg.vrc6Pulse1Duty,
+                    dbg.vrc6Pulse2Duty
                 );
             }
             else if (mapper)
@@ -1513,7 +1412,9 @@ void SJNES::runFrame()
                 mmc5WaveWindow->pushChannels(dbg);
         };
 
-        if (outputAudio && audio_sink->bytesFree() < 4096)
+        const qint64 minFreeBytes = is_stereo ? 8192 : 4096;
+
+        if (outputAudio && audio_sink->bytesFree() < minFreeBytes)
         {
             return;
         }
@@ -1990,7 +1891,7 @@ void SJNES::restartAudioSink()
 
     // Tăng buffer để khi kéo/di chuyển cửa sổ, audio còn dữ liệu dự phòng nên đỡ khựng/rè hơn.
     // Gốc là 32768.
-    audio_sink->setBufferSize(65536);
+    audio_sink->setBufferSize(32768);
 
     audio_device = audio_sink->start();
 
@@ -2005,40 +1906,33 @@ void SJNES::pushNSFAudioSample(std::vector<float>& audioSamples)
 
     const float MASTER_VOLUME = 0.95f;
     const float VRC6_GAIN = 0.95f;
-    const float S5B_GAIN = 0.75f;
-    const float VRC7_GAIN = 0.65f;
-    const float MMC5_GAIN = 0.85f;
 
     float exp = 0.0f;
 
     if (nsfVRC6)
         exp += nsfVRC6->GetExpansionAudio() * VRC6_GAIN;
 
-    if (nsfS5B)
-        exp += nsfS5B->GetExpansionAudio() * S5B_GAIN;
-
-    if (nsfVRC7)
-        exp += nsfVRC7->GetExpansionAudio() * VRC7_GAIN;
-
-    if (nsfMMC5)
-        exp += nsfMMC5->GetExpansionAudio() * MMC5_GAIN;
-
     float left = 0.0f;
     float right = 0.0f;
     float mono = 0.0f;
 
     if (is_stereo)
+    {
         nes_bus.n_apu.GetOutputSampleStereo(left, right);
+    }
     else
+    {
         mono = nes_bus.n_apu.GetOutputSample();
+    }
 
-    // Push NES 5-channel waveform after APU output has been updated.
+    // Push NES 5-channel waveform SAU KHI APU output đã được update
     if (nesWaveWindow && nesWaveWindow->isVisible())
     {
         AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
         nesWaveWindow->pushChannels(dbg);
     }
 
+    // Push VRC6 waveform
     if (nsfVRC6 && vrc6WaveWindow && vrc6WaveWindow->isVisible())
     {
         AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
@@ -2061,88 +1955,6 @@ void SJNES::pushNSFAudioSample(std::vector<float>& audioSamples)
         );
 
         vrc6WaveWindow->pushChannels(dbg);
-    }
-
-    if (nsfS5B && s5bWaveWindow && s5bWaveWindow->isVisible())
-    {
-        AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
-
-        nsfS5B->GetExpansionDebugChannels(
-            dbg.s5bToneA,
-            dbg.s5bToneB,
-            dbg.s5bToneC
-        );
-
-        nsfS5B->GetS5BDebugPeriods(
-            dbg.s5bToneAPeriod,
-            dbg.s5bToneBPeriod,
-            dbg.s5bToneCPeriod
-        );
-
-        nsfS5B->GetS5BDebugDuty(
-            dbg.s5bToneADuty,
-            dbg.s5bToneBDuty,
-            dbg.s5bToneCDuty
-        );
-
-        s5bWaveWindow->pushChannels(dbg);
-    }
-
-    if (nsfVRC7 && vrc7WaveWindow && vrc7WaveWindow->isVisible())
-    {
-        AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
-
-        nsfVRC7->GetVrc7DebugChannels(
-            dbg.vrc7Wave1,
-            dbg.vrc7Wave2,
-            dbg.vrc7Wave3,
-            dbg.vrc7Wave4,
-            dbg.vrc7Wave5,
-            dbg.vrc7Wave6
-        );
-
-        nsfVRC7->GetVrc7DebugPeriods(
-            dbg.vrc7Wave1Period,
-            dbg.vrc7Wave2Period,
-            dbg.vrc7Wave3Period,
-            dbg.vrc7Wave4Period,
-            dbg.vrc7Wave5Period,
-            dbg.vrc7Wave6Period
-        );
-
-        nsfVRC7->GetVrc7DebugPhases(
-            dbg.vrc7Wave1Phase,
-            dbg.vrc7Wave2Phase,
-            dbg.vrc7Wave3Phase,
-            dbg.vrc7Wave4Phase,
-            dbg.vrc7Wave5Phase,
-            dbg.vrc7Wave6Phase
-        );
-
-        vrc7WaveWindow->pushChannels(dbg);
-    }
-
-    if (nsfMMC5 && mmc5WaveWindow && mmc5WaveWindow->isVisible())
-    {
-        AudioDebugChannels dbg = nes_bus.n_apu.GetDebugChannels();
-
-        nsfMMC5->GetMMC5DebugChannels(
-            dbg.mmc5Pulse1,
-            dbg.mmc5Pulse2,
-            dbg.mmc5PCM
-        );
-
-        nsfMMC5->GetMMC5DebugPeriods(
-            dbg.mmc5Pulse1Period,
-            dbg.mmc5Pulse2Period
-        );
-
-        nsfMMC5->GetMMC5DebugDuty(
-            dbg.mmc5Pulse1Duty,
-            dbg.mmc5Pulse2Duty
-        );
-
-        mmc5WaveWindow->pushChannels(dbg);
     }
 
     if (is_stereo)
@@ -2196,12 +2008,6 @@ int SJNES::callNSFRoutine(
 
         if (nsfVRC6)
             nsfVRC6->irqStep();
-
-        if (nsfS5B)
-            nsfS5B->irqStep();
-
-        if (nsfMMC5)
-            nsfMMC5->ClockAudio();
 
         nsfAudioAccumulator += 44100.0 / 1789773.0;
 
@@ -2263,7 +2069,6 @@ void SJNES::runNSFFrame()
         20000,
         audioSamples
     );
-
     int remainCycles = CPU_CYCLES_PER_FRAME - usedCycles;
 
     if (remainCycles < 0)
@@ -2275,12 +2080,6 @@ void SJNES::runNSFFrame()
 
         if (nsfVRC6)
             nsfVRC6->irqStep();
-
-        if (nsfS5B)
-            nsfS5B->irqStep();
-
-        if (nsfMMC5)
-            nsfMMC5->ClockAudio();
 
         nsfAudioAccumulator += 44100.0 / CPU_HZ;
 
@@ -2314,110 +2113,13 @@ void SJNES::restartCurrentNSFTrack()
     for (int i = 0; i < 2048; i++)
         nes_bus.ram[i] = 0x00;
 
-    // Reload NSF memory and reset initial bank state for the selected track.
-    nes_bus.EnableNSFMode(
-        info.loadAddress,
-        currentNSF.ProgramData(),
-        info.bankSwitch
-    );
+    nes_bus.n_apu.reset();
 
     if (nsfVRC6)
     {
         nsfVRC6->reset();
         nsfVRC6->muteVRC6 = !ui.actVRC6->isChecked();
     }
-
-    if (nsfS5B)
-        nsfS5B->reset();
-
-    if (nsfVRC7)
-        nsfVRC7->reset();
-
-    if (nsfMMC5)
-        nsfMMC5->reset();
-
-    if (nsfVRC6 || nsfS5B || nsfVRC7 || nsfMMC5)
-    {
-        nes_bus.nsfExpansionWrite = [this](uint16_t addr, uint8_t data) -> bool
-            {
-                uint32_t mapped_addr = 0;
-
-                // MMC5 audio
-                if (nsfMMC5)
-                {
-                    if ((addr >= 0x5000 && addr <= 0x5015) ||
-                        addr == 0x5205 || addr == 0x5206)
-                    {
-                        nsfMMC5->cpuMapWrite(addr, mapped_addr, data);
-                        return true;
-                    }
-                }
-
-                // VRC6 audio
-                if (nsfVRC6)
-                {
-                    if ((addr >= 0x9000 && addr <= 0x9003) ||
-                        (addr >= 0xA000 && addr <= 0xA003) ||
-                        (addr >= 0xB000 && addr <= 0xB003))
-                    {
-                        nsfVRC6->cpuMapWrite(addr, mapped_addr, data);
-                        return true;
-                    }
-                }
-
-                // VRC7 audio
-                if (nsfVRC7)
-                {
-                    if (addr == 0x9010 || addr == 0x9030)
-                    {
-                        nsfVRC7->cpuMapWrite(addr, mapped_addr, data);
-                        return true;
-                    }
-                }
-
-                // Sunsoft 5B NSF
-                if (nsfS5B)
-                {
-                    if (addr >= 0xC000 && addr <= 0xDFFF)
-                    {
-                        nsfS5B->cpuMapWrite(addr, mapped_addr, data);
-                        return true;
-                    }
-
-                    if (addr >= 0xE000 && addr <= 0xFFFF)
-                    {
-                        nsfS5B->cpuMapWrite(addr, mapped_addr, data);
-                        return true;
-                    }
-                }
-
-                return false;
-            };
-        nes_bus.nsfExpansionRead = nullptr;
-
-        if (nsfMMC5)
-        {
-            nes_bus.nsfExpansionRead = [this](uint16_t addr, uint8_t& data) -> bool
-                {
-                    if (!nsfMMC5)
-                        return false;
-
-                    if (addr == 0x5015 ||
-                        addr == 0x5204 ||
-                        addr == 0x5205 ||
-                        addr == 0x5206 ||
-                        (addr >= 0x5C00 && addr <= 0x5FFF))
-                    {
-                        return nsfMMC5->cpuReadRegister(addr, data);
-                    }
-
-                    return false;
-                };
-        }
-    }
-
-    
-
 
     nes_bus.cpuWrite(0x4015, 0x1F);
     nes_bus.cpuWrite(0x4017, 0x40);
@@ -2459,10 +2161,10 @@ void SJNES::previousNSFTrack()
 
     const NSFInfo& info = currentNSF.Info();
 
-    if (currentNSFSong <= 1)
+    currentNSFSong--;
+
+    if (currentNSFSong < 1)
         currentNSFSong = info.totalSongs;
-    else
-        currentNSFSong--;
 
     restartCurrentNSFTrack();
 }
