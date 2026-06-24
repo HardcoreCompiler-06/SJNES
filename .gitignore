@@ -1,0 +1,8 @@
+.vs/
+x64/
+*.ipch
+*.vsidx
+*.db
+*.user
+*.slnx
+SJNES/ipch/
