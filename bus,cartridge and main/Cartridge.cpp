@@ -24,7 +24,6 @@
 #include "Mapper_070.h"
 #include "Mapper_071.h"
 #include "Mapper_075.h"
-#include "Mapper_078.h"
 #include "Mapper_079.h"
 #include "Mapper_085.h"
 #include "Mapper_087.h"
