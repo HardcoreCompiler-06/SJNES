@@ -2,76 +2,75 @@
 #include "Mapper_004.h"
 #include "Mapper_005.h"
 #include "Mapper_024.h"
-#include <QDebug>
 // ==============================================================================
 // KHỞI TẠO PPU & BẢNG MÀU
 // ==============================================================================
 PPU::PPU() {
-    palScreen[0x00] = QColor(84, 84, 84);
-    palScreen[0x01] = QColor(0, 30, 116);
-    palScreen[0x02] = QColor(8, 16, 144);
-    palScreen[0x03] = QColor(48, 0, 136);
-    palScreen[0x04] = QColor(68, 0, 100);
-    palScreen[0x05] = QColor(92, 0, 48);
-    palScreen[0x06] = QColor(84, 4, 0);
-    palScreen[0x07] = QColor(60, 24, 0);
-    palScreen[0x08] = QColor(32, 42, 0);
-    palScreen[0x09] = QColor(8, 58, 0);
-    palScreen[0x0A] = QColor(0, 64, 0);
-    palScreen[0x0B] = QColor(0, 60, 0);
-    palScreen[0x0C] = QColor(0, 50, 60);
+    palScreen[0x00] = QColor(102, 102, 102);
+    palScreen[0x01] = QColor(0, 42, 136);
+    palScreen[0x02] = QColor(20, 18, 167);
+    palScreen[0x03] = QColor(59, 0, 164);
+    palScreen[0x04] = QColor(92, 0, 126);
+    palScreen[0x05] = QColor(110, 0, 64);
+    palScreen[0x06] = QColor(108, 6, 0);
+    palScreen[0x07] = QColor(86, 29, 0);
+    palScreen[0x08] = QColor(51, 53, 0);
+    palScreen[0x09] = QColor(11, 72, 0);
+    palScreen[0x0A] = QColor(0, 82, 0);
+    palScreen[0x0B] = QColor(0, 79, 8);
+    palScreen[0x0C] = QColor(0, 64, 77);
     palScreen[0x0D] = QColor(0, 0, 0);
     palScreen[0x0E] = QColor(0, 0, 0);
     palScreen[0x0F] = QColor(0, 0, 0);
 
-    palScreen[0x10] = QColor(152, 150, 152);
-    palScreen[0x11] = QColor(8, 76, 196);
-    palScreen[0x12] = QColor(48, 50, 236);
-    palScreen[0x13] = QColor(92, 30, 228);
-    palScreen[0x14] = QColor(136, 20, 176);
-    palScreen[0x15] = QColor(160, 20, 100);
-    palScreen[0x16] = QColor(152, 34, 32);
-    palScreen[0x17] = QColor(120, 60, 0);
-    palScreen[0x18] = QColor(84, 90, 0);
-    palScreen[0x19] = QColor(40, 114, 0);
-    palScreen[0x1A] = QColor(8, 124, 0);
-    palScreen[0x1B] = QColor(0, 118, 40);
-    palScreen[0x1C] = QColor(0, 102, 120);
+    palScreen[0x10] = QColor(173, 173, 173);
+    palScreen[0x11] = QColor(21, 95, 217);
+    palScreen[0x12] = QColor(66, 64, 255);
+    palScreen[0x13] = QColor(117, 39, 254);
+    palScreen[0x14] = QColor(160, 26, 204);
+    palScreen[0x15] = QColor(183, 30, 123);
+    palScreen[0x16] = QColor(181, 49, 32);
+    palScreen[0x17] = QColor(153, 78, 0);
+    palScreen[0x18] = QColor(107, 109, 0);
+    palScreen[0x19] = QColor(56, 135, 0);
+    palScreen[0x1A] = QColor(12, 147, 0);
+    palScreen[0x1B] = QColor(0, 143, 50);
+    palScreen[0x1C] = QColor(0, 124, 141);
     palScreen[0x1D] = QColor(0, 0, 0);
     palScreen[0x1E] = QColor(0, 0, 0);
     palScreen[0x1F] = QColor(0, 0, 0);
 
-    palScreen[0x20] = QColor(236, 238, 236);
-    palScreen[0x21] = QColor(76, 154, 236);
-    palScreen[0x22] = QColor(120, 124, 236);
-    palScreen[0x23] = QColor(176, 98, 236);
-    palScreen[0x24] = QColor(228, 84, 236);
-    palScreen[0x25] = QColor(236, 88, 180);
-    palScreen[0x26] = QColor(236, 106, 100);
-    palScreen[0x27] = QColor(212, 136, 32);
-    palScreen[0x28] = QColor(160, 170, 0);
-    palScreen[0x29] = QColor(116, 196, 0);
-    palScreen[0x2A] = QColor(76, 208, 32);
-    palScreen[0x2B] = QColor(56, 204, 108);
-    palScreen[0x2C] = QColor(56, 180, 204);
-    palScreen[0x2D] = QColor(60, 60, 60);
+    palScreen[0x20] = QColor(255, 254, 255);
+    palScreen[0x21] = QColor(100, 176, 255);
+    palScreen[0x22] = QColor(146, 144, 255);
+    palScreen[0x23] = QColor(198, 118, 255);
+    palScreen[0x24] = QColor(243, 106, 255);
+    palScreen[0x25] = QColor(254, 110, 204);
+    palScreen[0x26] = QColor(254, 129, 112);
+    palScreen[0x27] = QColor(234, 158, 34);
+    palScreen[0x28] = QColor(188, 190, 0);
+    palScreen[0x29] = QColor(136, 216, 0);
+    palScreen[0x2A] = QColor(92, 228, 48);
+    palScreen[0x2B] = QColor(69, 224, 130);
+    palScreen[0x2C] = QColor(72, 205, 222);
+    palScreen[0x2D] = QColor(79, 79, 79);
     palScreen[0x2E] = QColor(0, 0, 0);
     palScreen[0x2F] = QColor(0, 0, 0);
 
-    palScreen[0x30] = QColor(236, 238, 236);
-    palScreen[0x31] = QColor(168, 204, 236);
-    palScreen[0x32] = QColor(188, 188, 236);
-    palScreen[0x33] = QColor(212, 178, 236);
-    palScreen[0x34] = QColor(236, 174, 236);
-    palScreen[0x35] = QColor(236, 174, 212);
-    palScreen[0x36] = QColor(236, 180, 176);
-    palScreen[0x37] = QColor(228, 196, 144);
-    palScreen[0x38] = QColor(204, 210, 120);
-    palScreen[0x39] = QColor(180, 222, 120);
-    palScreen[0x3A] = QColor(168, 226, 144);
-    palScreen[0x3B] = QColor(152, 226, 180);
-    palScreen[0x3C] = QColor(160, 214, 228);
-    palScreen[0x3D] = QColor(160, 162, 160);
+    palScreen[0x30] = QColor(255, 254, 255);
+    palScreen[0x31] = QColor(192, 223, 255);
+    palScreen[0x32] = QColor(211, 210, 255);
+    palScreen[0x33] = QColor(232, 200, 255);
+    palScreen[0x34] = QColor(251, 194, 255);
+    palScreen[0x35] = QColor(254, 196, 234);
+    palScreen[0x36] = QColor(254, 204, 197);
+    palScreen[0x37] = QColor(247, 216, 165);
+    palScreen[0x38] = QColor(228, 229, 148);
+    palScreen[0x39] = QColor(207, 239, 150);
+    palScreen[0x3A] = QColor(189, 244, 171);
+    palScreen[0x3B] = QColor(179, 243, 204);
+    palScreen[0x3C] = QColor(181, 235, 242);
+    palScreen[0x3D] = QColor(184, 184, 184);
     palScreen[0x3E] = QColor(0, 0, 0);
     palScreen[0x3F] = QColor(0, 0, 0);
 }
@@ -200,16 +199,6 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
         {
             if (scrollLogCount < 300)
             {
-                qDebug()
-                    << regName
-                    << "scanline=" << scanline
-                    << "cycle=" << cycle
-                    << "data=0x" << QString("%1").arg(value, 2, 16, QChar('0')).toUpper()
-                    << "v=0x" << QString("%1").arg(vram_addr.reg, 4, 16, QChar('0')).toUpper()
-                    << "t=0x" << QString("%1").arg(tram_addr.reg, 4, 16, QChar('0')).toUpper()
-                    << "fine_x=" << fine_x
-                    << "latch=" << address_latch;
-
                 scrollLogCount++;
             }
         };
@@ -746,7 +735,6 @@ void PPU::Step() {
             if (!(ppu_mask & 0x04) && (cycle >= 1 && cycle <= 8)) fg_pixel = 0;
         }
 
-        // Sprite zero hit nằm NGOÀI
         if (bSpriteZeroBeingRendered && (ppu_mask & 0x18) == 0x18) {
             if (cycle >= 1 && cycle < 256) {
                 if (bg_pixel > 0 && fg_pixel > 0) {
@@ -782,7 +770,6 @@ void PPU::Step() {
             ? (ppuRead(0x3F00 + (final_palette << 2) + final_pixel) & 0x3F)
             : (ppuRead(0x3F00) & 0x3F);
 
-        // PPUMASK bit 0: grayscale
         if (ppu_mask & 0x01)
             pal_idx &= 0x30;
 
@@ -850,9 +837,6 @@ uint8_t PPU::DebugPPURead(uint16_t addr)
 {
     uint8_t data = 0x00;
     addr &= 0x3FFF;
-
-    // KHÔNG gọi NotifyMapperA12 ở đây
-    // Vì đây chỉ là đọc để debug, không phải PPU thật đang chạy
 
     if (cart && cart->ppuRead(addr, data))
     {
