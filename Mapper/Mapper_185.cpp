@@ -4,8 +4,6 @@ Mapper_185::Mapper_185(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, ch
 Mapper_185::~Mapper_185() {}
 
 void Mapper_185::reset() {
-    // Boot với CHR MỞ — game đọc CHR thật để verify copy protection
-    // B-Wings Japan dùng key 0x21 (low nibble != 0 → mở)
     nDummyEnable = 0x21;
 }
 
