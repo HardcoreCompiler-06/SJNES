@@ -507,8 +507,10 @@ void Mapper_024::WriteSaw(uint16_t reg, uint8_t data)
         if (!saw.enable)
         {
             saw.output = 0.0f;
+            saw.prev_output = 0.0f;
             saw.step = 0;
             saw.accumulator = 0;
+            saw.phase = 0.0f; 
         }
         break;
     }
@@ -517,33 +519,34 @@ void Mapper_024::WriteSaw(uint16_t reg, uint8_t data)
 void Mapper_024::ClockVRC6Audio()
 {
     auto clockPulse = [](VRC6Pulse& p)
-    {
-        if (!p.enable || p.period < 8)
         {
-            p.output = 0.0f;
-            return;
-        }
+            if (!p.enable || p.period < 8)
+            {
+                p.output = 0.0f;
+                return;
+            }
 
-        if (p.timer == 0)
-        {
-            p.timer = p.period;
-            p.dutyPos = (p.dutyPos + 1) & 0x0F;
-        }
-        else
-        {
-            p.timer--;
-        }
+            if (p.timer == 0)
+            {
+                p.timer = p.period;
+                p.dutyPos = (p.dutyPos + 1) & 0x0F;
+            }
+            else
+            {
+                p.timer--;
+            }
 
-        if (p.mode)
-        {
-            p.output = static_cast<float>(p.volume) / 15.0f;
-        }
-        else
-        {
-            const bool high = p.dutyPos <= p.duty;
-            p.output = high ? (static_cast<float>(p.volume) / 15.0f) : 0.0f;
-        }
-    };
+            if (p.mode)
+            {
+                p.output = static_cast<float>(p.volume) / 15.0f;
+            }
+            else
+            {
+                const bool high = p.dutyPos <= p.duty;
+                p.output = high ? (static_cast<float>(p.volume) / 15.0f) : 0.0f;
+            }
+        };
+
 
     clockPulse(pulse1);
     clockPulse(pulse2);
@@ -551,46 +554,90 @@ void Mapper_024::ClockVRC6Audio()
     if (!saw.enable || saw.period < 8)
     {
         saw.output = 0.0f;
+        saw.prev_output = 0.0f;
+        saw.filtered_output = 0.0f;
+        saw.phase = 0.0f;
+        saw.timer = saw.period;
         return;
     }
 
-    if (saw.timer == 0)
+    if (smoothSawEnabled)
     {
-        saw.timer = saw.period;
+        const float cycleLength = static_cast<float>(saw.period + 1) * 14.0f;
+        saw.phase += 1.0f / cycleLength;
 
-        if (saw.step == 0)
-            saw.accumulator = 0;
+        if (saw.phase >= 1.0f)
+            saw.phase -= 1.0f;
 
-        if (saw.step & 1)
-            saw.accumulator += saw.rate;
+        float peak = static_cast<float>(saw.rate) * 7.0f / 8.0f;
+        if (peak > 31.0f)
+            peak = 31.0f;
 
-        saw.step++;
-        if (saw.step >= 14)
-        {
-            saw.step = 0;
-            saw.accumulator = 0;
-        }
-
-        saw.output = static_cast<float>((saw.accumulator >> 3) & 0x1F) / 31.0f;
+        saw.prev_output = saw.output;
+        saw.output = (saw.phase * peak) / 31.0f;
     }
     else
     {
-        saw.timer--;
+        if (saw.timer == 0)
+        {
+            saw.timer = saw.period;
+
+            if (saw.step == 0)
+                saw.accumulator = 0;
+
+            if (saw.step & 1)
+                saw.accumulator += saw.rate;
+
+            saw.step++;
+
+            if (saw.step >= 14)
+            {
+                saw.step = 0;
+                saw.accumulator = 0;
+            }
+
+            saw.prev_output = saw.output;
+            saw.output = static_cast<float>((saw.accumulator >> 3) & 0x1F) / 31.0f;
+        }
+        else
+        {
+            saw.timer--;
+        }
     }
 }
 
 float Mapper_024::GetExpansionAudio()
 {
+    if (muteVRC6) return 0.0f;
+
+    float p1 = pulse1.output * 15.0f;
+    float p2 = pulse2.output * 15.0f;
+    constexpr float sawGain = 2.0f;
+    float s = saw.GetCleanOutput(smoothSawEnabled) * 31.0f * sawGain;
+    float vrc6_mix = (p1 + p2 + s) / (30.0f + 31.0f * sawGain);
+    return vrc6_mix;
+}
+
+void Mapper_024::GetExpansionAudioStereo(float& left, float& right)
+{
     if (muteVRC6)
-        return 0.0f;
+    {
+        left = 0.0f;
+        right = 0.0f;
+        return;
+    }
 
-    float mix = 0.0f;
+    float p1 = pulse1.output * 15.0f;
+    float p2 = pulse2.output * 15.0f;
+    constexpr float sawGain = 1.6f;
+    float s = saw.GetCleanOutput(smoothSawEnabled) * 31.0f * sawGain;
 
-    mix += pulse1.output * 0.35f;
-    mix += pulse2.output * 0.35f;
-    mix += saw.output * 0.88f;
+    float mixL = (p1 * 0.60f) + (p2 * 0.40f) + (s * 0.50f);
+    float mixR = (p1 * 0.40f) + (p2 * 0.60f) + (s * 0.50f);
 
-    return mix * 0.35f;
+    const float stereoNorm = 15.0f + 15.5f * sawGain;
+    left = mixL / stereoNorm;
+    right = mixR / stereoNorm;
 }
 void Mapper_024::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
 {
@@ -616,7 +663,6 @@ void Mapper_024::GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const
         return v;
         };
 
-    // VRC6 pulse: 16 duty steps / chu kỳ, clock theo CPU cycle.
     ch1 = (!muteVRC6 && pulse1.enable && pulse1.period >= 8)
         ? clampPeriod(float(pulse1.period + 1) * 16.0f * CPU_TO_SAMPLE)
         : 0.0f;
@@ -638,7 +684,6 @@ void Mapper_024::GetVRC6DebugDuty(float& ch1, float& ch2) const
         if (muteVRC6 || !p.enable || p.period < 8 || p.volume == 0)
             return -1.0f;
 
-        // Sentinel 15 = constant/high mode của VRC6 ($x000 bit 7).
         if (p.mode)
             return 15.0f;
 

@@ -6,6 +6,11 @@ class Mapper_024 : public Mapper {
 public:
     Mapper_024(uint8_t prgBanks, uint8_t chrBanks);
     ~Mapper_024();
+    bool smoothSawEnabled = false;
+    void setSmoothSaw(bool enable)
+    {
+        smoothSawEnabled = enable;
+    }
     bool muteVRC6 = false;
     bool cpuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
@@ -21,11 +26,12 @@ public:
     void irqClear() override;
     QString GetDebugInfo() override;
     float GetExpansionAudio() override;
+    void GetExpansionAudioStereo(float& left, float& right) override;
     uint8_t GetNtSource(int index) const;
 private:
     // VRC6 PRG
     uint8_t prg16Bank = 0; // $8000-$BFFF, 16KB
-    uint8_t prg8Bank  = 0; // $C000-$DFFF, 8KB
+    uint8_t prg8Bank = 0; // $C000-$DFFF, 8KB
 
     // VRC6 CHR registers R0-R7, 1KB each
     uint8_t chrBank[8] = {};
@@ -78,7 +84,32 @@ private:
         uint8_t step = 0;
         uint8_t accumulator = 0;
 
+        float phase = 0.0f;
         float output = 0.0f;
+        float prev_output = 0.0f;
+        float filtered_output = 0.0f;
+        float GetOutput() const
+        {
+            if (!enable || period < 8)
+                return 0.0f;
+
+            float frac = static_cast<float>(period - timer) / static_cast<float>(period + 1);
+
+            if (frac < 0.0f) frac = 0.0f;
+            if (frac > 1.0f) frac = 1.0f;
+
+            return prev_output + (output - prev_output) * frac;
+        }
+        float GetCleanOutput(bool smooth)
+        {
+            if (!enable || period < 8)
+            {
+                filtered_output = 0.0f;
+                return 0.0f;
+            }
+
+            return output;
+        }
     };
 
     VRC6Pulse pulse1;
