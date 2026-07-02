@@ -1,0 +1,234 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{A978ECCB-CFA5-4B7B-A8BA-DA8416150554}</ProjectGuid>
+    <Keyword>QtVS_v304</Keyword>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">10.0</WindowsTargetPlatformVersion>
+    <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Condition="Exists('$(QtMsBuild)\qt_defaults.props')">
+    <Import Project="$(QtMsBuild)\qt_defaults.props" />
+  </ImportGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="QtSettings">
+    <QtInstall>6.7.3</QtInstall>
+    <QtModules>core;gui;widgets;opengl;openglwidgets;multimedia;svg;svgwidgets;multimedia;opengl;openglwidgets;svg;svgwidgets;widgets</QtModules>
+    <QtBuildConfig>debug</QtBuildConfig>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
+    <QtInstall>6.7.3</QtInstall>
+    <QtModules>core;gui;widgets;opengl;openglwidgets;multimedia;svg;svgwidgets;widgets</QtModules>
+    <QtBuildConfig>release</QtBuildConfig>
+  </PropertyGroup>
+  <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
+    <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
+  </Target>
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\Ki 1 nam 3\BAI TAP LON\SDL2-2.30.12\include;D:\Ki 1 nam 3\SJNES\UI;D:\Ki 1 nam 3\SJNES\SJNES;D:\Ki 1 nam 3\SJNES\PPU;D:\Ki 1 nam 3\SJNES\Mapper;D:\Ki 1 nam 3\SJNES\main windows;D:\Ki 1 nam 3\SJNES\cpu6502;D:\Ki 1 nam 3\SJNES\bus,cartridge and main;D:\Ki 1 nam 3\SJNES\APU;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>D:\Ki 1 nam 3\BAI TAP LON\SDL2-2.30.12\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>SDL2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>
+      </IgnoreSpecificDefaultLibraries>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y /d "D:\Ki 1 nam 3\BAI TAP LON\SDL2-2.30.12\lib\x64\SDL2.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\Ki 1 nam 3\BAI TAP LON\SDL2-2.30.12\include;D:\Ki 1 nam 3\SJNES\UI;D:\Ki 1 nam 3\SJNES\SJNES;D:\Ki 1 nam 3\SJNES\PPU;D:\Ki 1 nam 3\SJNES\Mapper;D:\Ki 1 nam 3\SJNES\main windows;D:\Ki 1 nam 3\SJNES\cpu6502;D:\Ki 1 nam 3\SJNES\bus,cartridge and main;D:\Ki 1 nam 3\SJNES\APU;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>D:\Ki 1 nam 3\BAI TAP LON\SDL2-2.30.12\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>SDL2.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>
+      </IgnoreSpecificDefaultLibraries>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y /d "D:\Ki 1 nam 3\BAI TAP LON\SDL2-2.30.12\lib\x64\SDL2.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
+    <ClCompile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
+    <ClCompile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <QtRcc Include="SJNES.qrc" />
+    <QtMoc Include="SJNES.h" />
+    <ClCompile Include="..\APU\APU.cpp" />
+    <ClCompile Include="..\APU\emu2413.c" />
+    <ClCompile Include="..\bus,cartridge and main\Cartridge.cpp" />
+    <ClCompile Include="..\cpu6502\CPU6502.cpp" />
+    <ClCompile Include="..\main windows\AudioWaveWindow.cpp" />
+    <ClCompile Include="..\main windows\GpuScreenWidget.cpp" />
+    <ClCompile Include="..\main windows\MapperViewerWindow.cpp" />
+    <ClCompile Include="..\main windows\miniz.c" />
+    <ClCompile Include="..\main windows\NSFFile.cpp" />
+    <ClCompile Include="..\main windows\SpriteScreenWidget.cpp" />
+    <ClCompile Include="..\main windows\SpriteViewerWindow.cpp" />
+    <ClCompile Include="..\Mapper\Mapper.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_000.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_001.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_002.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_003.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_004.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_005.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_007.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_009.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_011.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_015.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_018.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_019.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_021.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_023.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_024.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_066.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_068.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_069.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_070.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_071.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_075.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_078.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_079.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_085.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_087.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_180.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_185.cpp" />
+    <ClCompile Include="..\Mapper\Mapper_221.cpp" />
+    <ClCompile Include="..\PPU\PPU.cpp" />
+    <ClCompile Include="SJNES.cpp" />
+    <ClCompile Include="main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\APU\APU.h" />
+    <ClInclude Include="..\APU\ApuEnvelope.h" />
+    <ClInclude Include="..\APU\DMC.h" />
+    <ClInclude Include="..\APU\emu2413.h" />
+    <ClInclude Include="..\APU\F1.h" />
+    <ClInclude Include="..\APU\F2.h" />
+    <ClInclude Include="..\APU\Namco163Audio.h" />
+    <ClInclude Include="..\APU\Noise.h" />
+    <ClInclude Include="..\APU\Triangle.h" />
+    <ClInclude Include="..\bus,cartridge and main\Bus.h" />
+    <ClInclude Include="..\bus,cartridge and main\Cartridge.h" />
+    <ClInclude Include="..\bus,cartridge and main\LogBuffer.h" />
+    <ClInclude Include="..\main windows\miniz.h" />
+    <ClInclude Include="..\main windows\NSFFile.h" />
+    <ClInclude Include="..\main windows\resource1.h" />
+    <ClInclude Include="..\main windows\SJNES.h" />
+    <ClInclude Include="..\Mapper\Mapper_078.h" />
+    <ClInclude Include="..\Mapper\Mapper_180.h" />
+    <ClInclude Include="..\PPU\PPU.h" />
+    <QtMoc Include="..\main windows\SpriteViewerWindow.h" />
+    <QtMoc Include="..\main windows\SpriteScreenWidget.h" />
+    <QtMoc Include="..\main windows\MapperViewerWindow.h" />
+    <QtMoc Include="..\main windows\GpuScreenWidget.h" />
+    <QtMoc Include="..\main windows\AudioWaveWindow.h" />
+    <ClInclude Include="..\Mapper\Mapper.h" />
+    <ClInclude Include="..\Mapper\Mapper_000.h" />
+    <ClInclude Include="..\Mapper\Mapper_001.h" />
+    <ClInclude Include="..\Mapper\Mapper_002.h" />
+    <ClInclude Include="..\Mapper\Mapper_003.h" />
+    <ClInclude Include="..\Mapper\Mapper_004.h" />
+    <ClInclude Include="..\Mapper\Mapper_005.h" />
+    <ClInclude Include="..\Mapper\Mapper_007.h" />
+    <ClInclude Include="..\Mapper\Mapper_009.h" />
+    <ClInclude Include="..\Mapper\Mapper_011.h" />
+    <ClInclude Include="..\Mapper\Mapper_015.h" />
+    <ClInclude Include="..\Mapper\Mapper_018.h" />
+    <ClInclude Include="..\Mapper\Mapper_019.h" />
+    <ClInclude Include="..\Mapper\Mapper_021.h" />
+    <ClInclude Include="..\Mapper\Mapper_023.h" />
+    <ClInclude Include="..\Mapper\Mapper_024.h" />
+    <ClInclude Include="..\Mapper\Mapper_066.h" />
+    <ClInclude Include="..\Mapper\Mapper_068.h" />
+    <ClInclude Include="..\Mapper\Mapper_069.h" />
+    <ClInclude Include="..\Mapper\Mapper_070.h" />
+    <ClInclude Include="..\Mapper\Mapper_071.h" />
+    <ClInclude Include="..\Mapper\Mapper_075.h" />
+    <ClInclude Include="..\Mapper\Mapper_079.h" />
+    <ClInclude Include="..\Mapper\Mapper_085.h" />
+    <ClInclude Include="..\Mapper\Mapper_087.h" />
+    <ClInclude Include="..\Mapper\Mapper_185.h" />
+    <ClInclude Include="..\Mapper\Mapper_221.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtUic Include="SJNES.ui" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="SJNES.rc" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
+    <Import Project="$(QtMsBuild)\qt.targets" />
+  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
