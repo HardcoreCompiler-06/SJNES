@@ -1,5 +1,4 @@
 #include "AudioWaveWindow.h"
-// OLD_FEEL_EXCEPT_N163 + VRC7 CorrScope lock + fixed X anchor: chỉ sửa VRC7 trôi ngang thành co/dãn ngang.
 #include <QPainterPath>
 #include <QPainter>
 #include <QMutexLocker>
@@ -310,14 +309,39 @@ static float findVrc7CorrscopeStart(
         float ph = phase[ai];
         if (validPhase01(ph))
         {
-            float anchor = desiredAnchor - ph * periodHint;
-            while (anchor < desiredAnchor - periodHint * 0.5f) anchor += periodHint;
-            while (anchor > desiredAnchor + periodHint * 0.5f) anchor -= periodHint;
+            if (anchorCandidates.isEmpty() && hasHint)
+            {
+                int ai = std::clamp(int(std::round(desiredAnchor)), 0, n - 1);
+                float ph = phase[ai];
 
-            float candidateStart = anchor - anchorOffset;
-            candidateStart = std::clamp(candidateStart, 0.0f, float(n - visibleSamples - 2));
-            anchor = candidateStart + anchorOffset;
-            anchorCandidates.push_back(anchor);
+                if (validPhase01(ph))
+                {
+                    const float maxStart = float(n - visibleSamples - 2);
+                    const float baseAnchor = desiredAnchor - ph * periodHint;
+
+                    for (int k = -16; k <= 16; ++k)
+                    {
+                        float anchor = baseAnchor + float(k) * periodHint;
+                        float candidateStart = anchor - anchorOffset;
+
+                        if (candidateStart >= 0.0f && candidateStart <= maxStart)
+                            anchorCandidates.push_back(anchor);
+                    }
+
+                    if (anchorCandidates.isEmpty())
+                    {
+                        float anchor = baseAnchor;
+                        while (anchor < desiredAnchor - periodHint * 0.5f)
+                            anchor += periodHint;
+                        while (anchor > desiredAnchor + periodHint * 0.5f)
+                            anchor -= periodHint;
+
+                        float candidateStart = anchor - anchorOffset;
+                        candidateStart = std::clamp(candidateStart, 0.0f, maxStart);
+                        anchorCandidates.push_back(candidateStart + anchorOffset);
+                    }
+                }
+            }
         }
     }
 
@@ -641,6 +665,7 @@ static bool updateHardPeriodAnchor(
             needAcquire = true;
     }
 
+
     if (needAcquire)
     {
         int best = pickLatestStrongCandidate(idxs, slopes);
@@ -653,11 +678,13 @@ static bool updateHardPeriodAnchor(
         return true;
     }
 
-    // Cập nhật period thật, KHÔNG sửa lockAbsPos.
-    // Đây là điểm quan trọng để hết drift: phase anchor không bị crossing kéo đi nữa.
-    lock.period = periodHint;
+
+    float alpha = 1.0f;
+
+    lock.period += (periodHint - lock.period) * alpha;
     return true;
 }
+
 
 static float predictEdgeNearEnd(
     const AudioWaveWindow::TrigLockState& lock,
@@ -910,10 +937,31 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
     for (int i = 0; i < activeChannelCount; i++)
     {
         periodHint[i] = std::clamp(periods[i], 0.0f, 8192.0f);
+        const bool isNesTriangle =
+            (mode != WaveMode::VRC7 && mode != WaveMode::N163 && i == 2);
+        const bool triangleOff =
+            isNesTriangle && std::abs(values[i]) <= 0.0001f && periods[i] <= 0.0f;
 
-        // VRC7 không clamp sớm ở đây. Nếu clamp trước khi vẽ, đỉnh ch_out của emu2413
-        // sẽ bị cắt thành mặt phẳng ngang và paintGL không thể phục hồi lại được.
+        if (triangleOff)
+        {
+            for (float& s : buffers[i])
+                s = 0.0f;
+
+            lastVisual[i] = 0.0f;
+            periodHint[i] = 0.0f;
+            genericTrigLock[i] = TrigLockState{};
+            triangleZeroGate[i] = true;
+        }
+        else if (isNesTriangle && triangleZeroGate[i])
+        {
+            buffers[i].clear();
+            lastVisual[i] = 0.0f;
+            genericTrigLock[i] = TrigLockState{};
+            triangleZeroGate[i] = false;
+        }
         float v = values[i];
+        if (triangleOff)
+            v = 0.0f;
         if (mode != WaveMode::VRC7)
             v = std::clamp(v, -1.0f, 1.0f);
 
@@ -923,22 +971,19 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             v = std::clamp(v, -1.0f, 1.0f);
         }
 
-        // VRC6: dòng 5/6 là pulse, dòng 7 là saw
         if (mode == WaveMode::VRC6)
         {
             if (i == 5 || i == 6) { v *= 1.4f; v = std::clamp(v, -1.0f, 1.0f); }
-            if (i == 7) { v *= 1.65f; v = std::clamp(v, -1.0f, 1.0f); }
+            if (i == 7)
+            {
+                if (!std::isfinite(v)) v = 0.0f;
+                v *= 1.35f; 
+                v = std::clamp(v, -2.0f, 2.0f);
+            }
         }
 
-        // VRC7-only: giữ raw debug sample, KHÔNG scale/clamp ở pushChannels.
-        // Lý do: nếu scale rồi clamp/tanh ở đây thì đỉnh sóng bị bẹt từ dữ liệu buffer,
-        // paintGL không thể phục hồi lại được. VRC7 sẽ được phóng to bằng auto-gain khi vẽ.
         if (mode == WaveMode::VRC7)
         {
-            // VRC7 debug polarity test:
-            // Reference oscilloscope shows the flat/limited side on the bottom,
-            // while SJNES was showing it on the top. Flip only VRC7 here.
-            // Do NOT clamp/scale here, paintGL will auto-gain it.
             if (!std::isfinite(v))
                 v = 0.0f;
 
@@ -947,7 +992,6 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
 
         if (mode == WaveMode::N163)
         {
-            // N163 raw thường nhỏ, cần phóng lên để nhìn rõ
             float n163Scale = 6.0f;
 
             v *= n163Scale;
@@ -998,7 +1042,7 @@ void AudioWaveWindow::clearSamples()
         vrc7HasPhaseStart[i] = false;
         vrc7CorrRef[i].clear();
         vrc7CorrValid[i] = false;
-
+        triangleZeroGate[i] = false;
         n163LastTrigger[i] = 0.0f;
         n163Period[i] = 0.0f;
         n163LastBufferSize[i] = 0;
@@ -1137,7 +1181,7 @@ void AudioWaveWindow::paintGL()
                         else if (teeth > 9.0f)
                             visibleSamples = period * 9;
 
-                        visibleSamples = std::clamp(visibleSamples, 128, DISPLAY_SAMPLES * 3);
+                        visibleSamples = std::clamp(visibleSamples, 32, DISPLAY_SAMPLES * 3);
 
                         if (visibleSamples > n - 4)
                             visibleSamples = n - 4;
@@ -1161,7 +1205,6 @@ void AudioWaveWindow::paintGL()
         if (visibleSamples < 32 || n < visibleSamples + 4)
             continue;
 
-        // --- Tính min/max để trigger ---
         float minV = copy[c][0];
         float maxV = copy[c][0];
 
@@ -1174,47 +1217,38 @@ void AudioWaveWindow::paintGL()
         float range = maxV - minV;
         float triggerLevel = (minV + maxV) * 0.5f;
 
-        // --- Tìm điểm bắt đầu bằng trigger ---
         float fStart = float(n - visibleSamples);
 
         bool isNoiseDMC = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && (c == 3 || c == 4));
         bool isVrc6Saw = (mode == WaveMode::VRC6 && c == 7);
         bool isTriangle = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && c == 2);
 
-        if (range > 0.02f && !isNoiseDMC)
+        if (mode == WaveMode::VRC7)
+        {
+            bool corrOk = false;
+            QVector<float> newRef;
+            float corrStart = findVrc7CorrscopeStart(
+                copy[c], phaseCopy[c], n, visibleSamples, hintCopy[c],
+                vrc7CorrRef[c], vrc7CorrValid[c], newRef, corrOk
+            );
+
+            if (corrOk)
+            {
+                fStart = corrStart;
+                vrc7LastPhaseStart[c] = corrStart;
+                vrc7HasPhaseStart[c] = true;
+                vrc7CorrRef[c] = newRef;
+                vrc7CorrValid[c] = true;
+            }
+            else if (vrc7HasPhaseStart[c])
+            {
+                fStart = vrc7LastPhaseStart[c];
+            }
+        }
+        else if (range > 0.02f && !isNoiseDMC && !isTriangle)
         {
             if (mode == WaveMode::N163)
             {
-                // Việc chọn fStart cho N163 không còn cần thiết ở đây: N163 vẽ bằng block
-                // "row-sync" riêng phía dưới (dùng n163TrigLock + PLL), block đó tự tính
-                // cycleStart/period và sẽ "continue" trước khi chạm tới đoạn vẽ chung dùng
-                // fStart. Giữ fStart mặc định, không cần xử lý gì thêm ở đây.
-            }
-            else if (mode == WaveMode::VRC7)
-            {
-                // VRC7 CorrScope-style lock:
-                // Không dùng zero-crossing và cũng không lặp snapshot. Mỗi frame chọn phase-wrap
-                // có hình sóng giống frame trước nhất. Đây là thứ làm VRC7 đứng yên kiểu
-                // oscilloscope/corrscope nhưng vẫn giữ live-buffer "old feel".
-                bool corrOk = false;
-                QVector<float> newRef;
-                float corrStart = findVrc7CorrscopeStart(
-                    copy[c], phaseCopy[c], n, visibleSamples, hintCopy[c],
-                    vrc7CorrRef[c], vrc7CorrValid[c], newRef, corrOk
-                );
-
-                if (corrOk)
-                {
-                    fStart = corrStart;
-                    vrc7LastPhaseStart[c] = corrStart;
-                    vrc7HasPhaseStart[c] = true;
-                    vrc7CorrRef[c] = newRef;
-                    vrc7CorrValid[c] = true;
-                }
-                else if (vrc7HasPhaseStart[c])
-                {
-                    fStart = vrc7LastPhaseStart[c];
-                }
             }
             else if (isVrc6Saw)
             {
@@ -1237,10 +1271,6 @@ void AudioWaveWindow::paintGL()
             }
             else
             {
-                // GIỮ OLD FEEL cho tất cả kênh không phải N163:
-                // dùng trigger live-buffer đơn giản như bản anh gửi, không dùng hard-lock
-                // timer/duty ở đây nữa. Như vậy Pulse/VRC6/S5B/MMC5/Triangle vẫn chuyển động
-                // tự nhiên, không bị khô/cứng như CHIP_LOCK.
                 int searchStart = n - visibleSamples - 1;
 
                 if (searchStart < 1)
@@ -1268,7 +1298,13 @@ void AudioWaveWindow::paintGL()
             int scanStart = std::max(1, n - visibleSamples * 4);
             int scanEnd = n - 2;
 
-            float minSlope = std::max(0.0001f, range * 0.05f);
+            // Ngưỡng slope thấp hơn nhiều so với 5% biên độ: staircase (nhảy cục) có
+            // slope rất lớn nên vẫn detect tốt, nhưng khi Triangle bật smooth (ramp mượt
+            // trải đều qua cả period), slope mỗi sample nhỏ hơn nhiều -> ngưỡng cũ (5%)
+            // làm rớt hết candidate, gây trôi. Chỉ cần slope dương đủ để xác định đúng
+            // hướng rising edge; frac nội suy vẫn cho vị trí sub-sample chính xác dù
+            // slope nhỏ.
+            float minSlope = std::max(0.00002f, range * 0.001f);
 
             for (int si = scanStart + 1; si <= scanEnd; si++)
             {
@@ -1355,14 +1391,7 @@ void AudioWaveWindow::paintGL()
                     amp = (c == 7) ? panelH * 0.36f : panelH * 0.44f;
             }
         }
-        // N163 ROW-SYNC MODE:
-        // Không vẽ cả đoạn history dài theo thời gian nữa, vì khi biên độ/note thay đổi
-        // thì mép phải là sample mới còn mép trái là sample cũ -> nhìn như cả hàng bị lệch tick.
-        // Ở đây vẫn dùng sóng thật mới nhất, nhưng chỉ lấy MỘT chu kỳ gần trigger hiện tại,
-        // rồi lặp chu kỳ đó trên toàn hàng. Vì vậy toàn bộ hàng cập nhật cùng lúc theo frame.
-        //
-        // Trigger/period của chu kỳ này được chọn bằng PLL phase-lock (n163TrigLock),
-        // KHÔNG còn tính anchor/prevEdge từ đầu mỗi frame như trước -> hết rung ngang.
+
         if (mode == WaveMode::N163)
         {
             int drawPoints = std::max(2, w * 2);
@@ -1513,9 +1542,6 @@ void AudioWaveWindow::paintGL()
             if (drewN163)
                 continue;
 
-            // Không tìm được chu kỳ mới nghĩa là kênh đang tắt / quá nhỏ / đang chuyển note.
-            // ĐỪNG nhảy thẳng về đường giữa. Giữ waveform frame trước và release dần về midY
-            // để cảm giác hết âm mượt hơn, nhưng vẫn không trôi ngang.
             if (n163SmoothValid[c] && n163SmoothY[c].size() == drawPoints)
             {
                 QPainterPath releasePath;
@@ -1547,7 +1573,6 @@ void AudioWaveWindow::paintGL()
                 continue;
             }
 
-            // Nếu chưa từng có waveform hợp lệ thì mới rơi về cách vẽ cũ để vẫn thấy tín hiệu.
             n163SmoothValid[c] = false;
         }
 
@@ -1592,24 +1617,20 @@ void AudioWaveWindow::paintGL()
                 bool pathStarted = false;
 
                 auto normVrc7 = [&](float s) -> float
-                {
-                    float v = (s - localCenter) / localHalf;
-                    return std::clamp(v, -1.12f, 1.12f);
-                };
-
-                // Seam guard: không cắt path nữa, vì cắt sẽ tạo cảm giác "đứt" ở CH6.
-                // Thay vào đó, khi snapshot lặp lại, vài % đầu/cuối đoạn được kéo nhẹ về
-                // cùng một seamValue để nối mượt mà không sinh vạch dọc.
+                    {
+                        float v = (s - localCenter) / localHalf;
+                        return std::clamp(v, -1.12f, 1.12f);
+                    };
                 float startSample = sampleInterp(copy[c], std::clamp(cycleStart + 1.0f, 0.0f, float(n - 2)));
                 float endSample = sampleInterp(copy[c], std::clamp(cycleEnd - 1.0f, 0.0f, float(n - 2)));
                 float seamValue = (startSample + endSample) * 0.5f;
                 float seamWidth = std::clamp(6.0f / std::max(period, 1.0f), 0.012f, 0.055f);
 
                 auto smooth01 = [](float x) -> float
-                {
-                    x = std::clamp(x, 0.0f, 1.0f);
-                    return x * x * (3.0f - 2.0f * x);
-                };
+                    {
+                        x = std::clamp(x, 0.0f, 1.0f);
+                        return x * x * (3.0f - 2.0f * x);
+                    };
 
                 for (int pi = 0; pi < drawPoints; ++pi)
                 {
@@ -1676,31 +1697,32 @@ void AudioWaveWindow::paintGL()
 
         QPainterPath path;
 
-        // Số điểm vẽ: nhiều hơn để mượt.
-        // Riêng N163 tăng điểm vẽ vì đã bỏ stepWave, giúp chuyển động mềm hơn.
-        int drawPoints = (mode == WaveMode::N163) ? w * 3 : w * 2; // sub-pixel resolution
 
-        for (int i = 0; i < drawPoints; i++)
+        int drawPoints = (mode == WaveMode::N163) ? w * 3 : w * 2;
+        int triDrawPoints = w * 8;
+        int currentPoints = isTriangle ? triDrawPoints : drawPoints;
+
+        for (int i = 0; i < currentPoints; i++)
         {
-            float fIdx = fStart + (float(i) / float(drawPoints - 1)) * float(visibleSamples);
+            float fIdx = fStart + (float(i) / float(currentPoints - 1)) * float(visibleSamples);
 
             if (fIdx < 0 || fIdx >= float(n - 1)) continue;
 
-            float x = float(i) / float(drawPoints - 1) * float(w);
+            float x = float(i) / float(currentPoints - 1) * float(w);
             float y;
 
             auto drawSample = [&](float s) -> float
-            {
-                if (mode == WaveMode::VRC7)
                 {
-                    // Auto-gain theo từng kênh VRC7: dùng range thật của buffer hiện tại,
-                    // không hard-clamp ở pushChannels nên đỉnh không còn bị bẹt giả.
-                    const float halfRange = std::max(range * 0.5f, 0.0015f);
-                    float vrc7 = (s - triggerLevel) / halfRange;
-                    return std::clamp(vrc7, -1.18f, 1.18f);
-                }
-                return s;
-            };
+                    if (mode == WaveMode::VRC7)
+                    {
+                        // Auto-gain theo từng kênh VRC7: dùng range thật của buffer hiện tại,
+                        // không hard-clamp ở pushChannels nên đỉnh không còn bị bẹt giả.
+                        const float halfRange = std::max(range * 0.5f, 0.0015f);
+                        float vrc7 = (s - triggerLevel) / halfRange;
+                        return std::clamp(vrc7, -1.18f, 1.18f);
+                    }
+                    return s;
+                };
 
             if (stepWave)
             {
