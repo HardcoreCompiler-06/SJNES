@@ -50,6 +50,7 @@
      <string>File</string>
     </property>
     <addaction name="actOpenROM"/>
+    <addaction name="actPower"/>
     <addaction name="actReset"/>
     <addaction name="actPause"/>
     <addaction name="actExit"/>
@@ -127,9 +128,17 @@
      <addaction name="menuOverclock"/>
      <addaction name="actRemoveSpriteLimit"/>
     </widget>
+    <widget class="QMenu" name="menuInput">
+     <property name="title">
+      <string>Input</string>
+     </property>
+     <addaction name="chkAutoA"/>
+     <addaction name="chkAutoB"/>
+    </widget>
     <addaction name="menuvideo"/>
     <addaction name="menuAudio"/>
     <addaction name="menuPerformance"/>
+    <addaction name="menuInput"/>
    </widget>
    <widget class="QMenu" name="menuhelp">
     <property name="title">
@@ -340,6 +349,39 @@
   <action name="actWaveN163">
    <property name="text">
     <string>N163</string>
+   </property>
+  </action>
+  <action name="actPower">
+   <property name="text">
+    <string>Power OFF/ON</string>
+   </property>
+  </action>
+  <action name="chkAutoA">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Auto A</string>
+   </property>
+  </action>
+  <action name="chkAutoB">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Auto B</string>
    </property>
   </action>
  </widget>

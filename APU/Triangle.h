@@ -26,6 +26,7 @@ struct Triangle {
     bool     linear_reload_flag = false;
     bool     control_flag = false;   // bit 7 của $4008
     bool     enabled = false;
+    bool     smooth = false; // false: staircase thô (NES thật); true: nội suy mượt cho AUDIO
     mutable float last_output = 0.0f;  // giữ giá trị cuối để tránh pop khi tắt
 
     // Gọi mỗi CPU cycle
@@ -62,16 +63,50 @@ struct Triangle {
             length_counter--;
     }
     float Output() const {
-        if (!enabled) return last_output;  
-        last_output = tri_wave_table[tri_phase];
+        if (!enabled) return last_output;
+
+        if (!smooth) {
+            // Staircase thô, đúng kiểu NES thật (32 bậc, không nội suy).
+            last_output = tri_wave_table[tri_phase];
+            return last_output;
+        }
+
+        // Nội suy tuyến tính giữa bậc hiện tại và bậc kế tiếp,
+        // dựa trên vị trí của timer trong period hiện tại.
+        // timer đếm ngược từ timer_reload -> 0, khi về 0 mới advance phase.
+        uint8_t next_phase = (tri_phase + 1) & 31;
+        float frac = 0.0f;
+        if (timer_reload > 0) {
+            frac = (float)(timer_reload - timer) / (float)(timer_reload + 1);
+        }
+
+        float v0 = tri_wave_table[tri_phase];
+        float v1 = tri_wave_table[next_phase];
+
+        last_output = v0 + (v1 - v0) * frac;
         return last_output;
     }
     float DebugOutput() const {
         if (!enabled || length_counter == 0 || linear_counter == 0)
             return 0.0f;
 
-        // tri_wave_table là 0..15, đổi về -1..1 để vẽ waveform cân giữa
-        float v = tri_wave_table[tri_phase & 31] / 15.0f;
+        if (!smooth) {
+            float v = tri_wave_table[tri_phase & 31] / 15.0f;
+            return v * 2.0f - 1.0f;
+        }
+
+        // Nội suy y hệt Output() để oscilloscope khớp với âm thanh thật khi smooth bật.
+        // minSlope trong AudioWaveWindow.cpp đã được hạ thấp để chịu được ramp mượt này.
+        uint8_t next_phase = (tri_phase + 1) & 31;
+        float frac = 0.0f;
+        if (timer_reload > 0) {
+            frac = (float)(timer_reload - timer) / (float)(timer_reload + 1);
+        }
+
+        float v0 = tri_wave_table[tri_phase];
+        float v1 = tri_wave_table[next_phase];
+        float v = (v0 + (v1 - v0) * frac) / 15.0f;
+
         return v * 2.0f - 1.0f;
     }
     void WriteReg(uint8_t reg, uint8_t data) {

@@ -6,6 +6,7 @@
 #include "Triangle.h"
 #include "DMC.h"
 #include "Noise.h"
+#include "Mapper_024.h"
 struct AudioDebugChannels {
     float pulse1 = 0.0f;
     float pulse2 = 0.0f;
@@ -128,6 +129,11 @@ public:
     bool muteTriangle = false;
     bool muteNoise = false;
     bool muteDMC = false;
+    bool smoothSawEnabled = false;
+    void SetSmoothSaw(bool enable);
+    Mapper* mapper = nullptr;
+    void SetSmoothTriangle(bool smooth) { tri.smooth = smooth; }
+    bool GetSmoothTriangle() const { return tri.smooth; }
     uint8_t readStatus() {
         uint8_t s = 0;
         if (f1.length_counter > 0) s |= 0x01;

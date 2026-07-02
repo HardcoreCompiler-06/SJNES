@@ -1,6 +1,6 @@
 #include "APU.h"
 #include "Bus.h"
-
+#include "Mapper_024.h"
 APU::APU() {
     noise.shift_register = 1;
     dmc.reader = [&](uint16_t addr) -> uint8_t {
@@ -109,33 +109,47 @@ void APU::GetOutputSampleStereo(float& left, float& right) {
     float n = muteNoise ? 0.0f : noise.Output();
     float d = muteDMC ? 0.0f : dmc.Output();
 
-    // TND filter qua mono filter chung (hp1/hp2/lp) tránh lệch pha L/R
-    float tnd = (t / 8227.0f) + (n / 12241.0f) + (d / 22638.0f);
+    // 1. Xử lý nhóm TND (Mono ở giữa)
+    float tnd_sum = (t / 8227.0f) + (n / 12241.0f) + (d / 22638.0f);
     float tnd_out = 0.0f;
-    if (tnd > 0.0f)
-        tnd_out = 159.79f / ((1.0f / tnd) + 100.0f);
+    if (tnd_sum > 0.0f) {
+        tnd_out = 159.79f / ((1.0f / tnd_sum) + 100.0f);
+    }
+    const float NES_TND_BOOST = 2.0f;
+    tnd_out *= NES_TND_BOOST;
+    
+    float pulseL_sum = (p1 * 1.50f) + (p2 * 0.50f);
+    float pulseR_sum = (p1 * 0.50f) + (p2 * 1.50f);
 
-    // Filter TND qua mono filter
-    hp1 = 0.996f * (hp1 + tnd_out - prev_in1); prev_in1 = tnd_out;
-    hp2 = 0.990f * (hp2 + hp1 - prev_in2);     prev_in2 = hp1;
-    lp += 0.899f * (hp2 - lp);
-    float tnd_filtered = lp;
+    float pulse_out_L = 0.0f;
+    if (pulseL_sum > 0.0f) {
+        pulse_out_L = 95.88f / ((8128.0f / pulseL_sum) + 100.0f);
+    }
 
-    // Pulse L/R qua filter riêng
-    float outL = (p1 > 0.0f ? 95.88f / ((8128.0f / (p1 * 1.5f)) + 100.0f) : 0.0f);
-    float outR = (p2 > 0.0f ? 95.88f / ((8128.0f / (p2 * 1.5f)) + 100.0f) : 0.0f);
+    float pulse_out_R = 0.0f;
+    if (pulseR_sum > 0.0f) {
+        pulse_out_R = 95.88f / ((8128.0f / pulseR_sum) + 100.0f);
+    }
+    const float NES_PULSE_BOOST = 2.0f;
+    pulse_out_L *= NES_PULSE_BOOST;
+    pulse_out_R *= NES_PULSE_BOOST;
+    float mix_L = pulse_out_L + tnd_out;
+    float mix_R = pulse_out_R + tnd_out;
 
-    hp1L = 0.996f * (hp1L + outL - prev_in1L); prev_in1L = outL;
-    hp2L = 0.990f * (hp2L + hp1L - prev_in2L); prev_in2L = hp1L;
+    // 4. Đưa qua hệ thống lọc (Filter) kép
+    // Kênh Trái
+    hp1L = 0.996f * (hp1L + mix_L - prev_in1L); prev_in1L = mix_L;
+    hp2L = 0.990f * (hp2L + hp1L - prev_in2L);  prev_in2L = hp1L;
     lpL += 0.899f * (hp2L - lpL);
 
-    hp1R = 0.996f * (hp1R + outR - prev_in1R); prev_in1R = outR;
-    hp2R = 0.990f * (hp2R + hp1R - prev_in2R); prev_in2R = hp1R;
+    // Kênh Phải
+    hp1R = 0.996f * (hp1R + mix_R - prev_in1R); prev_in1R = mix_R;
+    hp2R = 0.990f * (hp2R + hp1R - prev_in2R);  prev_in2R = hp1R;
     lpR += 0.899f * (hp2R - lpR);
 
-    // Cộng TND mono vào cả 2 kênh
-    left = lpL + tnd_filtered;
-    right = lpR + tnd_filtered;
+    // Xuất ra loa
+    left = lpL;
+    right = lpR;
 }
 AudioDebugChannels APU::GetDebugChannels()
 {
@@ -232,4 +246,17 @@ void APU::reset()
     lpR = 0.0f;
     prev_in1R = 0.0f;
     prev_in2R = 0.0f;
+}
+void APU::SetSmoothSaw(bool enable)
+{
+    smoothSawEnabled = enable;
+
+    Mapper* activeMapper = mapper;
+
+    if (!activeMapper && bus && bus->cart && bus->cart->pMapper)
+        activeMapper = bus->cart->pMapper.get();
+
+    auto vrc6 = dynamic_cast<Mapper_024*>(activeMapper);
+    if (vrc6)
+        vrc6->setSmoothSaw(enable);
 }

@@ -21,6 +21,10 @@
 #include <QAction>
 #include <QCloseEvent>
 #include "Mapper_024.h"
+#include "Mapper_069.h"
+#include "Mapper_085.h"
+#include "Mapper_005.h"
+#include "Mapper_019.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 class SJNES : public QMainWindow
@@ -42,12 +46,15 @@ private slots:
     void onStepClicked();
     void onStereoToggled(bool checked);
     void runFrame();
-
 private:
     void restartCurrentNSFTrack();
     void nextNSFTrack();
     void previousNSFTrack();
     std::unique_ptr<Mapper_024> nsfVRC6;
+    std::unique_ptr<Mapper_069> nsfS5B;
+    std::unique_ptr<Mapper_085> nsfVRC7;
+    std::unique_ptr<Mapper_005> nsfMMC5;
+	std::unique_ptr<Mapper_019> nsfN163;
     NSFFile currentNSF;
     int currentNSFSong = 1;
     double nsfAudioAccumulator = 0.0;
@@ -71,7 +78,7 @@ private:
     QElapsedTimer fpsTimer;
     int videoFpsCounter = 0;
     int gameFpsCounter = 0;
-    bool showFpsOverlay = true;
+    bool showFpsOverlay = false;
     double videoFpsValue = 0.0;
     double gameFpsValue = 0.0;
     QImage lastGameFrame;
@@ -125,4 +132,10 @@ private:
     uint8_t gamepadState1 = 0x00;
     bool saveStateMapper0(const QString& path);
     bool loadStateMapper0(const QString& path);
+    bool machinePowered = true;
+    void on_actPower_triggered();
+	bool holdturboA = false;
+	bool holdturboB = false;
+    void on_chkAutoA_toggled(bool checked);
+    void on_chkAutoB_toggled(bool checked);
 };
