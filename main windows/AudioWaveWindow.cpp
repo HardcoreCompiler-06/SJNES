@@ -52,6 +52,19 @@ static float sampleInterp(const QVector<float>& buf, float fidx)
     return catmullRom(buf[i0], buf[i1], buf[i2], buf[i3], t);
 }
 
+// Nội suy tuyến tính đơn giản, KHÔNG overshoot (không như Catmull-Rom cubic có thể
+// phình lên/xuống quá giá trị thật gần các góc gãy đột ngột - ví dụ đỉnh ramp của
+// VRC6 Saw ngay trước khi rơi thẳng đứng). Dùng cho kênh có cạnh sắc cần chính xác
+// tuyệt đối, không chấp nhận "bóng" giả nổi cao hơn sóng thật.
+static float sampleLinear(const QVector<float>& buf, float fidx)
+{
+    int n = buf.size();
+    int i0 = std::clamp((int)fidx, 0, n - 1);
+    int i1 = std::clamp(i0 + 1, 0, n - 1);
+    float t = fidx - float(i0);
+    return buf[i0] + (buf[i1] - buf[i0]) * t;
+}
+
 // CorScope-style trigger: tìm rising zero-crossing ổn định nhất
 // Quét ngược trong cửa sổ tìm kiếm, ưu tiên crossing có slope mạnh nhất
 // Trả về index float (sub-sample precision)
@@ -649,7 +662,8 @@ static bool updateHardPeriodAnchor(
     float periodHint,
     float minPeriod,
     float maxPeriod,
-    float changeRatio)
+    float changeRatio,
+    float periodAlpha = 1.0f) // 1.0 = ghi đè cứng (behavior cũ); nhỏ hơn = low-pass
 {
     const bool hasHint = periodHint >= minPeriod && periodHint <= maxPeriod;
     if (!hasHint)
@@ -678,10 +692,7 @@ static bool updateHardPeriodAnchor(
         return true;
     }
 
-
-    float alpha = 1.0f;
-
-    lock.period += (periodHint - lock.period) * alpha;
+    lock.period += (periodHint - lock.period) * periodAlpha;
     return true;
 }
 
@@ -944,9 +955,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
 
         if (triangleOff)
         {
-            for (float& s : buffers[i])
-                s = 0.0f;
-
+            // BỎ vòng lặp set 0.0f cho buffers[i] ở đây
             lastVisual[i] = 0.0f;
             periodHint[i] = 0.0f;
             genericTrigLock[i] = TrigLockState{};
@@ -954,36 +963,39 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
         }
         else if (isNesTriangle && triangleZeroGate[i])
         {
-            buffers[i].clear();
+            // BỎ lệnh buffers[i].clear(); 
             lastVisual[i] = 0.0f;
             genericTrigLock[i] = TrigLockState{};
             triangleZeroGate[i] = false;
         }
+
         float v = values[i];
         if (triangleOff)
-            v = 0.0f;
-        if (mode != WaveMode::VRC7)
-            v = std::clamp(v, -1.0f, 1.0f);
-
-        if (mode != WaveMode::VRC7 && (i == 3 || i == 4))
         {
-            v *= 1.6f;
+            v = 0.0f;
+        }
+
+        if (mode != WaveMode::VRC7)
+        {
             v = std::clamp(v, -1.0f, 1.0f);
         }
 
+        // VRC6: dòng 5/6 là pulse, dòng 7 là saw
         if (mode == WaveMode::VRC6)
         {
             if (i == 5 || i == 6) { v *= 1.4f; v = std::clamp(v, -1.0f, 1.0f); }
-            if (i == 7)
-            {
-                if (!std::isfinite(v)) v = 0.0f;
-                v *= 1.35f; 
-                v = std::clamp(v, -2.0f, 2.0f);
-            }
+            if (i == 7) { v *= 1.65f; v = std::clamp(v, -1.0f, 1.0f); }
         }
 
+        // VRC7-only: giữ raw debug sample, KHÔNG scale/clamp ở pushChannels.
+        // Lý do: nếu scale rồi clamp/tanh ở đây thì đỉnh sóng bị bẹt từ dữ liệu buffer,
+        // paintGL không thể phục hồi lại được. VRC7 sẽ được phóng to bằng auto-gain khi vẽ.
         if (mode == WaveMode::VRC7)
         {
+            // VRC7 debug polarity test:
+            // Reference oscilloscope shows the flat/limited side on the bottom,
+            // while SJNES was showing it on the top. Flip only VRC7 here.
+            // Do NOT clamp/scale here, paintGL will auto-gain it.
             if (!std::isfinite(v))
                 v = 0.0f;
 
@@ -992,6 +1004,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
 
         if (mode == WaveMode::N163)
         {
+            // N163 raw thường nhỏ, cần phóng lên để nhìn rõ
             float n163Scale = 6.0f;
 
             v *= n163Scale;
@@ -1298,13 +1311,7 @@ void AudioWaveWindow::paintGL()
             int scanStart = std::max(1, n - visibleSamples * 4);
             int scanEnd = n - 2;
 
-            // Ngưỡng slope thấp hơn nhiều so với 5% biên độ: staircase (nhảy cục) có
-            // slope rất lớn nên vẫn detect tốt, nhưng khi Triangle bật smooth (ramp mượt
-            // trải đều qua cả period), slope mỗi sample nhỏ hơn nhiều -> ngưỡng cũ (5%)
-            // làm rớt hết candidate, gây trôi. Chỉ cần slope dương đủ để xác định đúng
-            // hướng rising edge; frac nội suy vẫn cho vị trí sub-sample chính xác dù
-            // slope nhỏ.
-            float minSlope = std::max(0.00002f, range * 0.001f);
+            float minSlope = std::max(0.0001f, range * 0.05f);
 
             for (int si = scanStart + 1; si <= scanEnd; si++)
             {
@@ -1679,8 +1686,12 @@ void AudioWaveWindow::paintGL()
 
         // N163 không dùng stepWave để đường sóng chuyển động mượt hơn.
         // Trigger N163 ở trên vẫn giữ nguyên để không bị trôi ngang.
+        // Saw (c==7) loại khỏi stepWave: giá trị audio đã là ramp liên tục (đặc biệt khi
+        // Smooth Saw bật), vẽ kiểu step (nearest-sample, nối góc vuông) sẽ ép nó thành
+        // bậc thang giả dù dữ liệu gốc mượt. Pulse (c==5,6) vẫn giữ step vì đúng bản chất
+        // digital pulse (cần cạnh vuông sắc nét).
         bool stepWave = (c == 0 || c == 1)
-            || (mode == WaveMode::VRC6 && c >= 5)
+            || (mode == WaveMode::VRC6 && c >= 5 && c != 7)
             || (mode == WaveMode::S5B && c >= 5)
             || (mode == WaveMode::MMC5 && (c == 5 || c == 6));
 
@@ -1743,8 +1754,13 @@ void AudioWaveWindow::paintGL()
             }
             else
             {
-                // Smooth wave: Catmull-Rom interpolation
-                y = midY - drawSample(sampleInterp(copy[c], fIdx)) * amp;
+                // Smooth wave: Catmull-Rom interpolation, TRỪ VRC6 Saw dùng linear
+                // (Catmull-Rom có thể overshoot ở góc gãy đột ngột - đỉnh ramp trước khi
+                // rơi thẳng đứng - tạo "bóng" giả nổi cao hơn sóng thật lúc đang lên).
+                float s = (mode == WaveMode::VRC6 && c == 7)
+                    ? sampleLinear(copy[c], fIdx)
+                    : sampleInterp(copy[c], fIdx);
+                y = midY - drawSample(s) * amp;
                 if (i == 0) path.moveTo(x, y);
                 else        path.lineTo(x, y);
             }
