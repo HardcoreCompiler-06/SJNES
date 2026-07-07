@@ -24,15 +24,15 @@ public:
     uint8_t  status = 0x00;
 
     void reset();
-    void irq();   
+    void irq();
     void nmi();
     void clock();
 
     enum IRQSource : uint8_t
     {
         IRQ_EXTERNAL = 1 << 0,
-        IRQ_APU      = 1 << 1,
-        IRQ_DMC      = 1 << 2,
+        IRQ_APU = 1 << 1,
+        IRQ_DMC = 1 << 2,
     };
     void SetIrqSource(uint8_t source);
     void ClearIrqSource(uint8_t source);
@@ -57,14 +57,51 @@ private:
     uint8_t GetFlag(FLAGS6502 f);
     void    SetFlag(FLAGS6502 f, bool v);
     bool nmi_pending = false;
-    bool irq_pending = false; 
-    uint8_t irq_sources = 0; 
+    bool irq_pending = false;
+    uint8_t irq_sources = 0;
     uint8_t  fetched = 0x00;
     uint16_t temp = 0x0000;
     uint16_t addr_abs = 0x0000;
     uint16_t addr_rel = 0x0000;
     uint8_t  opcode = 0x00;
     uint32_t clock_count = 0;
+
+    // ==== State machine cho cycle-accurate execution ====
+    int instr_cycle = 0;
+    uint8_t  addr_lo = 0;
+    uint16_t base_addr = 0;
+    uint16_t eff_addr = 0;
+    uint8_t  rmw_old_val = 0;
+    bool     page_crossed = false;
+    bool     branch_taken = false;
+
+    // Trạng thái riêng cho NMI/IRQ - KHÔNG dùng chung với `opcode` vì 0xFE/0xFF
+    // là các opcode THẬT (INC abs,X / ISC abs,X) sẽ gây xung đột nghiêm trọng.
+    enum class SpecialMode : uint8_t { NONE_MODE, NMI_MODE, IRQ_MODE };
+    SpecialMode specialMode = SpecialMode::NONE_MODE;
+
+    enum class AddrClass : uint8_t
+    {
+        IMP_ACC, IMM_, ZPG_, ZPX_, ZPY_, ABS_, ABX_, ABY_,
+        IZX_, IZY_, REL_, IND_, NONE_
+    };
+    enum class OpClass : uint8_t
+    {
+        READ, WRITE, RMW, BRANCH, JUMP, JSR_OP, RTS_OP, RTI_OP, BRK_OP,
+        PHA_OP, PHP_OP, PLA_OP, PLP_OP, IMPLIED_ONLY
+    };
+
+    struct INSTRUCTION2
+    {
+        AddrClass amode = AddrClass::NONE_;
+        OpClass   otype = OpClass::IMPLIED_ONLY;
+        uint8_t(CPU6502::* operate)(void) = nullptr;
+    };
+    std::vector<INSTRUCTION2> lookup2;
+    void BuildLookup2();
+
+    void StepInstructionCycle();
+    void FinishInstruction();
 
     Bus* bus = nullptr;
     uint8_t read(uint16_t a);
