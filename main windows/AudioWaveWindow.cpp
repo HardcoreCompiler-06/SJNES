@@ -265,7 +265,10 @@ static float findVrc7CorrscopeStart(
     const QVector<float>& prevRef,
     bool hasPrevRef,
     QVector<float>& newRef,
-    bool& ok
+    bool& ok,
+    qint64 absBase,
+    qint64& lastAnchorAbs,
+    bool& hasLastAnchorAbs
 )
 {
     ok = false;
@@ -377,15 +380,17 @@ static float findVrc7CorrscopeStart(
         if (hasPrevRef && prevRef.size() == ref.size())
         {
             score = vrc7RefError(ref, prevRef);
-
-            // Phạt rất nhẹ nếu anchor rời xa X cố định. Correlation vẫn là chính,
-            // penalty chỉ ngăn nó nhảy sang wrap quá xa gây cảm giác drift.
             score += std::abs(anchor - desiredAnchor) / std::max(1.0f, float(visibleSamples)) * 0.035f;
         }
         else
         {
-            // Frame đầu: chọn wrap gần X anchor nhất.
             score = std::abs(anchor - desiredAnchor);
+        }
+        if (hasLastAnchorAbs)
+        {
+            float anchorAbs = float(absBase) + anchor;
+            float driftFromLast = std::abs(anchorAbs - float(lastAnchorAbs));
+            score += driftFromLast / std::max(1.0f, float(visibleSamples)) * 0.6f;
         }
 
         if (score < bestScore)
@@ -400,6 +405,9 @@ static float findVrc7CorrscopeStart(
     {
         newRef = bestRef;
         ok = true;
+        lastAnchorAbs = absBase + (qint64)std::llround(bestStart + anchorOffset);
+        hasLastAnchorAbs = true;
+
         return bestStart;
     }
 
@@ -407,10 +415,6 @@ static float findVrc7CorrscopeStart(
 }
 
 
-// Tìm đoạn VRC7 mới nhất bằng phase-wrap thật trong phase buffer.
-// VRC7/FM không phải lúc nào cũng khớp đẹp sau đúng 1 carrier cycle vì có modulator,
-// feedback/envelope. Nếu lặp 1 chu kỳ quá ngắn sẽ dễ tạo seam/gap, đặc biệt ở CH6.
-// Vì vậy ta ưu tiên lấy một snapshot gồm vài chu kỳ carrier mới nhất, rồi lặp cả đoạn đó.
 static bool findVrc7LatestCycle(
     const QVector<float>& phase,
     int n,
@@ -958,7 +962,31 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             // BỎ vòng lặp set 0.0f cho buffers[i] ở đây
             lastVisual[i] = 0.0f;
             periodHint[i] = 0.0f;
-            genericTrigLock[i] = TrigLockState{};
+
+            if (!triangleZeroGate[i] && genericTrigLock[i].locked &&
+                genericTrigLock[i].period >= 8.0f)
+            {
+                // Vừa chuyển từ có tiếng -> tắt: chụp lại đúng 1 chu kỳ cuối
+                // (lúc buffer còn dữ liệu thật) để lặp lại (tile) trong lúc
+                // fade, thay vì tiếp tục đọc buffer sống (vốn sẽ bị nhồi 0
+                // từ bên phải, gây cảm giác "cụt từ phải sang trái").
+                int period = std::clamp((int)std::lround(genericTrigLock[i].period),
+                    8, MAX_SAMPLES);
+                int bsize = buffers[i].size();
+                if (bsize >= period)
+                {
+                    triFrozenCycle[i].resize(period);
+                    for (int k = 0; k < period; k++)
+                        triFrozenCycle[i][k] = buffers[i][bsize - period + k];
+                    triFreezeActive[i] = true;
+                    triFreezeAmp[i] = 1.0f;
+                }
+            }
+
+            // KHÔNG reset genericTrigLock[i] ở đây nữa: giữ nguyên period/anchor
+            // đã lock từ lần cuối còn tiếng, để paintGL tiếp tục ngoại suy trigger
+            // ở GIỮA canvas bằng đúng nhịp cũ trong lúc lặp lại chu kỳ đông băng.
+            // Lock sẽ được reset đúng lúc note bật lại (nhánh else if bên dưới).
             triangleZeroGate[i] = true;
         }
         else if (isNesTriangle && triangleZeroGate[i])
@@ -967,6 +995,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             lastVisual[i] = 0.0f;
             genericTrigLock[i] = TrigLockState{};
             triangleZeroGate[i] = false;
+            triFreezeActive[i] = false;
         }
 
         float v = values[i];
@@ -1055,7 +1084,12 @@ void AudioWaveWindow::clearSamples()
         vrc7HasPhaseStart[i] = false;
         vrc7CorrRef[i].clear();
         vrc7CorrValid[i] = false;
+        vrc7HasLastAnchorAbs[i] = false;
+        vrc7LastAnchorAbs[i] = 0;
         triangleZeroGate[i] = false;
+        triFreezeActive[i] = false;
+        triFrozenCycle[i].clear();
+        triFreezeAmp[i] = 0.0f;
         n163LastTrigger[i] = 0.0f;
         n163Period[i] = 0.0f;
         n163LastBufferSize[i] = 0;
@@ -1231,6 +1265,7 @@ void AudioWaveWindow::paintGL()
         float triggerLevel = (minV + maxV) * 0.5f;
 
         float fStart = float(n - visibleSamples);
+        qint64 chanAbsBase = (qint64)pushedCopy[c] - (qint64)n;
 
         bool isNoiseDMC = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && (c == 3 || c == 4));
         bool isVrc6Saw = (mode == WaveMode::VRC6 && c == 7);
@@ -1242,7 +1277,8 @@ void AudioWaveWindow::paintGL()
             QVector<float> newRef;
             float corrStart = findVrc7CorrscopeStart(
                 copy[c], phaseCopy[c], n, visibleSamples, hintCopy[c],
-                vrc7CorrRef[c], vrc7CorrValid[c], newRef, corrOk
+                vrc7CorrRef[c], vrc7CorrValid[c], newRef, corrOk,
+                chanAbsBase, vrc7LastAnchorAbs[c], vrc7HasLastAnchorAbs[c]
             );
 
             if (corrOk)
@@ -1334,7 +1370,7 @@ void AudioWaveWindow::paintGL()
                 }
             }
 
-            qint64 absBase = (qint64)pushedCopy[c] - (qint64)n;
+            qint64 absBase = chanAbsBase;
             float hint = hintCopy[c];
 
             bool locked = updateHardPeriodAnchor(
@@ -1345,27 +1381,34 @@ void AudioWaveWindow::paintGL()
                 hint,
                 8.0f,
                 8192.0f,
-                0.06f
+                0.06f,
+                0.25f   // periodAlpha: lọc nhẹ để tránh nháy/giật khi period đo có jitter nhỏ
             );
+
+            // Trigger cố định ở GIỮA canvas: tìm edge gần tâm buffer hiển thị
+            // (thay vì gần mép trái), rồi lùi fStart lại nửa visibleSamples để
+            // khi vẽ, edge đó rơi đúng x = w/2. Hai bên trái/phải vẫn co giãn
+            // theo visibleSamples (đã co giãn theo period ở đoạn "teeth" phía trên).
+            float halfVisible = float(visibleSamples) * 0.5f;
 
             if (locked && genericTrigLock[c].period >= 8.0f)
             {
-                float desiredStart = float(n - visibleSamples);
+                float desiredCenter = float(n) - halfVisible;
                 float edge = predictEdgeNearStart(
                     genericTrigLock[c],
                     absBase,
-                    desiredStart,
-                    1.0f,
-                    float(n - visibleSamples - 2)
+                    desiredCenter,
+                    halfVisible,
+                    float(n) - halfVisible - 2.0f
                 );
 
                 if (edge >= 0.0f)
-                    fStart = edge;
+                    fStart = edge - halfVisible;
             }
             else if (!idxs.isEmpty())
             {
                 // Fallback nếu chưa có period hint
-                fStart = idxs.back();
+                fStart = idxs.back() - halfVisible;
             }
         }
         fStart = std::clamp(fStart, 0.0f, float(n - visibleSamples - 2));
@@ -1709,6 +1752,27 @@ void AudioWaveWindow::paintGL()
         QPainterPath path;
 
 
+        // Nếu đang trong giai đoạn fade sau khi note tắt: lấy mẫu từ 1 chu kỳ
+        // đã đóng băng (lặp lại tuần hoàn) thay vì đọc buffer sống, để tránh
+        // hiệu ứng "cụt từ phải sang trái" do buffer bị nhồi 0 liên tục.
+        bool useFrozenCycle = isTriangle && triFreezeActive[c] && !triFrozenCycle[c].isEmpty();
+        float freezeAmpNow = triFreezeAmp[c];
+
+        auto sampleTriFrozen = [&](float fIdx) -> float
+            {
+                int period = triFrozenCycle[c].size();
+                double absPos = double(chanAbsBase) + double(fIdx);
+                double lockPos = double(genericTrigLock[c].lockAbsPos);
+                double rel = std::fmod(absPos - lockPos, double(period));
+                if (rel < 0.0) rel += double(period);
+
+                int i0 = int(rel);
+                int i1 = (i0 + 1) % period;
+                float frac = float(rel - double(i0));
+                return (triFrozenCycle[c][i0] * (1.0f - frac) + triFrozenCycle[c][i1] * frac)
+                    * freezeAmpNow;
+            };
+
         int drawPoints = (mode == WaveMode::N163) ? w * 3 : w * 2;
         int triDrawPoints = w * 8;
         int currentPoints = isTriangle ? triDrawPoints : drawPoints;
@@ -1740,14 +1804,16 @@ void AudioWaveWindow::paintGL()
                 // Step wave: dùng nearest sample (không interpolate)
                 int idx = int(fIdx);
                 idx = std::clamp(idx, 0, n - 1);
-                y = midY - drawSample(copy[c][idx]) * amp;
+                float sCur = useFrozenCycle ? sampleTriFrozen(fIdx) : copy[c][idx];
+                y = midY - drawSample(sCur) * amp;
 
                 if (i == 0) { path.moveTo(x, y); }
                 else
                 {
                     float prevFIdx = fStart + (float(i - 1) / float(drawPoints - 1)) * float(visibleSamples);
                     int prevIdx = std::clamp(int(prevFIdx), 0, n - 1);
-                    float prevY = midY - drawSample(copy[c][prevIdx]) * amp;
+                    float sPrev = useFrozenCycle ? sampleTriFrozen(prevFIdx) : copy[c][prevIdx];
+                    float prevY = midY - drawSample(sPrev) * amp;
                     path.lineTo(x, prevY);
                     path.lineTo(x, y);
                 }
@@ -1757,9 +1823,11 @@ void AudioWaveWindow::paintGL()
                 // Smooth wave: Catmull-Rom interpolation, TRỪ VRC6 Saw dùng linear
                 // (Catmull-Rom có thể overshoot ở góc gãy đột ngột - đỉnh ramp trước khi
                 // rơi thẳng đứng - tạo "bóng" giả nổi cao hơn sóng thật lúc đang lên).
-                float s = (mode == WaveMode::VRC6 && c == 7)
-                    ? sampleLinear(copy[c], fIdx)
-                    : sampleInterp(copy[c], fIdx);
+                float s = useFrozenCycle
+                    ? sampleTriFrozen(fIdx)
+                    : ((mode == WaveMode::VRC6 && c == 7)
+                        ? sampleLinear(copy[c], fIdx)
+                        : sampleInterp(copy[c], fIdx));
                 y = midY - drawSample(s) * amp;
                 if (i == 0) path.moveTo(x, y);
                 else        path.lineTo(x, y);
@@ -1767,6 +1835,18 @@ void AudioWaveWindow::paintGL()
         }
 
         p.drawPath(path);
+
+        if (isTriangle && triFreezeActive[c])
+        {
+            // Giảm dần biên độ chu kỳ đông băng mỗi frame để tạo fade-out mượt,
+            // đối xứng quanh tâm (không cụt lệch 1 phía). Khi đủ nhỏ thì tắt hẳn.
+            triFreezeAmp[c] *= 0.93f;
+            if (triFreezeAmp[c] < 0.01f)
+            {
+                triFreezeActive[c] = false;
+                triFrozenCycle[c].clear();
+            }
+        }
     }
 }
 
