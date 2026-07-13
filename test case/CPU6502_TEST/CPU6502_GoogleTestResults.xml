@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="0" disabled="0" errors="0" timestamp="2026-07-14T04:11:35" time="0" name="AllTests">
+  <testsuite name="CPU6502_Test" tests="4" failures="0" disabled="0" errors="0" time="0">
+    <testcase name="TC03_LDA_Immediate" status="run" time="0" classname="CPU6502_Test" />
+    <testcase name="TC03_LDA_ZeroPage" status="run" time="0" classname="CPU6502_Test" />
+    <testcase name="TC03_STA_ZeroPage" status="run" time="0" classname="CPU6502_Test" />
+    <testcase name="TC04_ADC_Boundary_Overflow" status="run" time="0" classname="CPU6502_Test" />
+  </testsuite>
+</testsuites>
