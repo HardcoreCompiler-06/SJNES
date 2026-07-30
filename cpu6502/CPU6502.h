@@ -3,7 +3,7 @@
 #include <vector>
 #include <string>
 #include <map>
-#include<qdatastream>
+#include "BinaryIO.h"
 class Bus;
 
 class CPU6502
@@ -43,8 +43,8 @@ public:
     uint8_t fetch();
     std::map<uint16_t, std::string> disassemble(uint16_t nStart, uint16_t nStop);
     bool complete();
-    void SaveState(QDataStream& out) const;
-    void LoadState(QDataStream& in);
+    void SaveState(BinaryWriter& out) const;
+    void LoadState(BinaryReader& in);
 public:
     uint16_t  cycles = 0;
     enum FLAGS6502
@@ -79,6 +79,16 @@ private:
     // là các opcode THẬT (INC abs,X / ISC abs,X) sẽ gây xung đột nghiêm trọng.
     enum class SpecialMode : uint8_t { NONE_MODE, NMI_MODE, IRQ_MODE };
     SpecialMode specialMode = SpecialMode::NONE_MODE;
+
+    // CLI/SEI/PLP trì hoãn hiệu lực IRQ-inhibition đúng 1 lệnh theo chuẩn 6502 thật.
+    // irq_disable_shadow là giá trị "I" THỰC SỰ được dùng để xét IRQ (trễ hơn GetFlag(I) thật
+    // đúng 1 nhịp bất cứ khi nào lệnh vừa chạy là CLI/SEI/PLP).
+    uint8_t irq_disable_shadow = 1;
+    bool    owe_shadow_sync = false;
+
+    // Dùng RIÊNG cho rule "nhánh rẽ taken không crosspage bỏ qua IRQ check ở cycle cuối"
+    // (không liên quan tới CLI/SEI/PLP, không dùng chung biến).
+    bool     suppress_irq_check_this_instruction = false;
 
     enum class AddrClass : uint8_t
     {

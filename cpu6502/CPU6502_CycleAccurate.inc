@@ -99,8 +99,11 @@ void CPU6502::clock()
             cycles = 7;
             return;
         }
-        else if (IsIrqActive() && GetFlag(I) == 0)
+        else if (IsIrqActive() && irq_disable_shadow == 0 && !suppress_irq_check_this_instruction)
         {
+            // Đã dùng xong shadow (giá trị trễ) cho lần xét này - giờ đồng bộ nếu đang nợ
+            if (owe_shadow_sync) { irq_disable_shadow = GetFlag(I); owe_shadow_sync = false; }
+
             if (irq_sources == 0) irq_pending = false;
             irqHandledCount++;
             instr_cycle = 1;
@@ -110,7 +113,13 @@ void CPU6502::clock()
         }
         else
         {
-            if (IsIrqActive() && GetFlag(I) != 0) irqBlockedCount++;
+            // Cờ trì hoãn (rule nhánh rẽ) chỉ có hiệu lực cho ĐÚNG 1 lần kiểm tra IRQ kế tiếp
+            suppress_irq_check_this_instruction = false;
+
+            // Đã dùng xong shadow (giá trị trễ) cho lần xét này - giờ đồng bộ nếu đang nợ
+            if (owe_shadow_sync) { irq_disable_shadow = GetFlag(I); owe_shadow_sync = false; }
+
+            if (IsIrqActive() && irq_disable_shadow != 0) irqBlockedCount++;
 
             specialMode = SpecialMode::NONE_MODE;
             opcode = read(pc);
@@ -136,6 +145,10 @@ void CPU6502::clock()
                 write(0x0100 + stkp, pushedStatus); stkp--;
                 SetFlag(I, true);
                 SetFlag(U, true);
+                // QUAN TRỌNG: đồng bộ shadow NGAY LẬP TỨC khi phần cứng tự set I=1 lúc vào ngắt,
+                // nếu không shadow sẽ vẫn "tưởng" ngắt đang cho phép -> lồng ngắt vô hạn.
+                irq_disable_shadow = 1;
+                owe_shadow_sync = false;
                 break;
             }
             case 5: temp = read(isNmi ? 0xFFFA : 0xFFFE); break; // lo byte vector
@@ -182,7 +195,9 @@ void CPU6502::StepInstructionCycle()
         {
             uint16_t hi = read(pc);
             pc = (hi << 8) | addr_lo;
-            instr_cycle = 0; cycles = 0; return;
+            instr_cycle = 0; cycles = 0;
+            irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
+            return;
         }
         instr_cycle++;
         return;
@@ -196,7 +211,9 @@ void CPU6502::StepInstructionCycle()
         else if (instr_cycle == 5)
         {
             pc++;
-            instr_cycle = 0; cycles = 0; return;
+            instr_cycle = 0; cycles = 0;
+            irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
+            return;
         }
         instr_cycle++;
         return;
@@ -212,7 +229,10 @@ void CPU6502::StepInstructionCycle()
             stkp++;
             uint16_t hi = read(0x0100 + stkp);
             pc = (hi << 8) | temp;
-            instr_cycle = 0; cycles = 0; return;
+            instr_cycle = 0; cycles = 0;
+            // RTI ảnh hưởng IRQ-inhibition NGAY LẬP TỨC, không trễ như CLI/SEI/PLP.
+            irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
+            return;
         }
         instr_cycle++;
         return;
@@ -228,7 +248,9 @@ void CPU6502::StepInstructionCycle()
         {
             uint16_t hi = read(0xFFFF);
             pc = (hi << 8) | temp;
-            instr_cycle = 0; cycles = 0; return;
+            instr_cycle = 0; cycles = 0;
+            irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
+            return;
         }
         instr_cycle++;
         return;
@@ -241,7 +263,9 @@ void CPU6502::StepInstructionCycle()
         {
             uint8_t v = (L.name == "PHA") ? a : (status | B | U);
             write(0x0100 + stkp, v); stkp--;
-            instr_cycle = 0; cycles = 0; return;
+            instr_cycle = 0; cycles = 0;
+            irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
+            return;
         }
         instr_cycle++;
         return;
@@ -255,9 +279,19 @@ void CPU6502::StepInstructionCycle()
         {
             stkp++;
             uint8_t v = read(0x0100 + stkp);
-            if (L.name == "PLA") { a = v; SetFlag(Z, a == 0); SetFlag(N, a & 0x80); }
-            else { status = v; status &= ~B; status |= U; }
-            instr_cycle = 0; cycles = 0; return;
+            if (L.name == "PLA")
+            {
+                a = v; SetFlag(Z, a == 0); SetFlag(N, a & 0x80);
+                irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
+            }
+            else
+            {
+                // PLP cũng nằm trong nhóm trì hoãn (CLI/SEI/PLP) theo readme.
+                status = v; status &= ~B; status |= U;
+                owe_shadow_sync = true;
+            }
+            instr_cycle = 0; cycles = 0;
+            return;
         }
         instr_cycle++;
         return;
@@ -537,7 +571,15 @@ void CPU6502::StepInstructionCycle()
             read(pc); // dummy read tại PC (chưa nhảy)
             page_crossed = ((target & 0xFF00) != (base_addr & 0xFF00));
             pc = target;
-            if (!page_crossed) { FinishInstruction(); return; }
+            if (!page_crossed)
+            {
+                // Rule đặc biệt (Blargg cpu_interrupts #5): nhánh rẽ taken KHÔNG crosspage
+                // (chỉ 3 cycle) sẽ bỏ qua việc kiểm tra IRQ ở cycle cuối cùng của chính nó,
+                // khiến lệnh kế tiếp luôn được chạy trước khi IRQ được xét.
+                suppress_irq_check_this_instruction = true;
+                FinishInstruction();
+                return;
+            }
         }
         else if (instr_cycle == 3)
         {
@@ -579,6 +621,7 @@ void CPU6502::StepInstructionCycle()
 void CPU6502::FinishInstruction()
 {
     auto& L2 = lookup2[opcode];
+    auto& L = lookup[opcode];
 
     // Đồng bộ biến cũ mà operate() gốc đang dùng (addr_abs) với eff_addr mới tính được
     addr_abs = eff_addr;
@@ -587,6 +630,20 @@ void CPU6502::FinishInstruction()
     {
         (this->*L2.operate)();
     }
+
+    // CLI/SEI/PLP: hiệu lực IRQ-inhibition bị trì hoãn đúng 1 lệnh theo chuẩn 6502 thật.
+    // KHÔNG sync irq_disable_shadow ngay - để giá trị CŨ được dùng cho đúng 1 lần xét
+    // IRQ kế tiếp (owe_shadow_sync=true báo cho clock() biết cần đồng bộ sau khi xét xong).
+    if (L.name == "CLI" || L.name == "SEI" || L.name == "PLP")
+    {
+        owe_shadow_sync = true;
+    }
+    else
+    {
+        irq_disable_shadow = GetFlag(I);
+        owe_shadow_sync = false;
+    }
+
     instr_cycle = 0;
     cycles = 0;
 }

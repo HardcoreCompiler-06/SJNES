@@ -1,8 +1,6 @@
 #include "CPU6502.h"
 #include "Bus.h"
-#include <QDebug>
-#include <QString>
-
+#include "BinaryIO.h"
 // CỤC 1: KHỞI TẠO, BẢNG TỪ ĐIỂN 256 LỆNH VÀ CÁC TÍN HIỆU PHẦN CỨNG
 
 CPU6502::CPU6502()
@@ -76,6 +74,9 @@ void CPU6502::reset() {
     instr_cycle = 0;
     opcode = 0x00;
     specialMode = SpecialMode::NONE_MODE;
+    suppress_irq_check_this_instruction = false;
+    irq_disable_shadow = 1; // sau reset, I=1 (interrupt disabled), shadow khớp luôn
+    owe_shadow_sync = false;
 }
 
 void CPU6502::nmi() {
@@ -289,236 +290,236 @@ uint8_t CPU6502::LDX() { fetch(); x = fetched; SetFlag(Z, x == 0x00); SetFlag(N,
 uint8_t CPU6502::LDY() { fetch(); y = fetched; SetFlag(Z, y == 0x00); SetFlag(N, y & 0x80); return 1; }
 uint8_t CPU6502::LSR() { fetch(); SetFlag(C, fetched & 0x0001); temp = fetched >> 1; SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
 uint8_t CPU6502::NOP() { switch (opcode) { case 0x1C: case 0x3C: case 0x5C: case 0x7C: case 0xDC: case 0xFC: return 1; break; } return 0; }
-                                                    uint8_t CPU6502::ORA() { fetch(); a = a | fetched; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 1; }
-                                                    uint8_t CPU6502::PHA() { write(0x0100 + stkp, a); stkp--; return 0; }
-                                                    uint8_t CPU6502::PHP()
-                                                    {
-                                                        write(0x0100 + stkp, status | B | U);
-                                                        stkp--;
-                                                        return 0;
-                                                    }
-                                                    uint8_t CPU6502::PLA() { stkp++; a = read(0x0100 + stkp); SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
-                                                    uint8_t CPU6502::PLP()
-                                                    {
-                                                        stkp++;
-                                                        status = read(0x0100 + stkp);
+uint8_t CPU6502::ORA() { fetch(); a = a | fetched; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 1; }
+uint8_t CPU6502::PHA() { write(0x0100 + stkp, a); stkp--; return 0; }
+uint8_t CPU6502::PHP()
+{
+    write(0x0100 + stkp, status | B | U);
+    stkp--;
+    return 0;
+}
+uint8_t CPU6502::PLA() { stkp++; a = read(0x0100 + stkp); SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
+uint8_t CPU6502::PLP()
+{
+    stkp++;
+    status = read(0x0100 + stkp);
 
-                                                        status &= ~B;
-                                                        status |= U;
+    status &= ~B;
+    status |= U;
 
-                                                        return 0;
-                                                    }
-                                                    uint8_t CPU6502::ROL() { fetch(); temp = (uint16_t)(fetched << 1) | GetFlag(C); SetFlag(C, temp & 0xFF00); SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
-                                                    uint8_t CPU6502::ROR() { fetch(); temp = (uint16_t)(GetFlag(C) << 7) | (fetched >> 1); SetFlag(C, fetched & 0x01); SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
-                                                    uint8_t CPU6502::RTI() { stkp++; status = read(0x0100 + stkp); status &= ~B; status |= U; stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; return 0; }
-                                                    uint8_t CPU6502::RTS() { stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; pc++; return 0; }
-                                                    uint8_t CPU6502::SEC() { SetFlag(C, true); return 0; }
-                                                    uint8_t CPU6502::SED() { SetFlag(D, true); return 0; }
-                                                    uint8_t CPU6502::SEI() { SetFlag(I, true); return 0; }
-                                                    uint8_t CPU6502::STA() { write(addr_abs, a); return 0; }
-                                                    uint8_t CPU6502::STX() { write(addr_abs, x); return 0; }
-                                                    uint8_t CPU6502::STY() { write(addr_abs, y); return 0; }
-                                                    uint8_t CPU6502::BRK()
-                                                    {
-                                                        pc++;
-                                                        write(0x0100 + stkp, (pc >> 8) & 0x00FF);
-                                                        stkp--;
-                                                        write(0x0100 + stkp, pc & 0x00FF);
-                                                        stkp--;
-                                                        write(0x0100 + stkp, status | B | U);
-                                                        stkp--;
-                                                        SetFlag(I, true);
-                                                        SetFlag(U, true);
-                                                        status &= ~B;
-                                                        pc = (uint16_t)read(0xFFFE) | ((uint16_t)read(0xFFFF) << 8);
-                                                        return 0;
-                                                    }
-                                                    uint8_t CPU6502::TAX() { x = a; SetFlag(Z, x == 0x00); SetFlag(N, x & 0x80); return 0; }
-                                                    uint8_t CPU6502::TAY() { y = a; SetFlag(Z, y == 0x00); SetFlag(N, y & 0x80); return 0; }
-                                                    uint8_t CPU6502::TSX() { x = stkp; SetFlag(Z, x == 0x00); SetFlag(N, x & 0x80); return 0; }
-                                                    uint8_t CPU6502::TXA() { a = x; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
-                                                    uint8_t CPU6502::TXS() { stkp = x; return 0; }
-                                                    uint8_t CPU6502::TYA() { a = y; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
-                                                    uint8_t CPU6502::LAX()
-                                                    {
-                                                        fetch();
-                                                        a = fetched;
-                                                        x = fetched;
-                                                        SetFlag(Z, a == 0x00);
-                                                        SetFlag(N, a & 0x80);
-                                                        return 1;
-                                                    }
+    return 0;
+}
+uint8_t CPU6502::ROL() { fetch(); temp = (uint16_t)(fetched << 1) | GetFlag(C); SetFlag(C, temp & 0xFF00); SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
+uint8_t CPU6502::ROR() { fetch(); temp = (uint16_t)(GetFlag(C) << 7) | (fetched >> 1); SetFlag(C, fetched & 0x01); SetFlag(Z, (temp & 0x00FF) == 0x0000); SetFlag(N, temp & 0x0080); if (lookup[opcode].addrmode == &CPU6502::IMP) a = temp & 0x00FF; else write(addr_abs, temp & 0x00FF); return 0; }
+uint8_t CPU6502::RTI() { stkp++; status = read(0x0100 + stkp); status &= ~B; status |= U; stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; return 0; }
+uint8_t CPU6502::RTS() { stkp++; pc = (uint16_t)read(0x0100 + stkp); stkp++; pc |= (uint16_t)read(0x0100 + stkp) << 8; pc++; return 0; }
+uint8_t CPU6502::SEC() { SetFlag(C, true); return 0; }
+uint8_t CPU6502::SED() { SetFlag(D, true); return 0; }
+uint8_t CPU6502::SEI() { SetFlag(I, true); return 0; }
+uint8_t CPU6502::STA() { write(addr_abs, a); return 0; }
+uint8_t CPU6502::STX() { write(addr_abs, x); return 0; }
+uint8_t CPU6502::STY() { write(addr_abs, y); return 0; }
+uint8_t CPU6502::BRK()
+{
+    pc++;
+    write(0x0100 + stkp, (pc >> 8) & 0x00FF);
+    stkp--;
+    write(0x0100 + stkp, pc & 0x00FF);
+    stkp--;
+    write(0x0100 + stkp, status | B | U);
+    stkp--;
+    SetFlag(I, true);
+    SetFlag(U, true);
+    status &= ~B;
+    pc = (uint16_t)read(0xFFFE) | ((uint16_t)read(0xFFFF) << 8);
+    return 0;
+}
+uint8_t CPU6502::TAX() { x = a; SetFlag(Z, x == 0x00); SetFlag(N, x & 0x80); return 0; }
+uint8_t CPU6502::TAY() { y = a; SetFlag(Z, y == 0x00); SetFlag(N, y & 0x80); return 0; }
+uint8_t CPU6502::TSX() { x = stkp; SetFlag(Z, x == 0x00); SetFlag(N, x & 0x80); return 0; }
+uint8_t CPU6502::TXA() { a = x; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
+uint8_t CPU6502::TXS() { stkp = x; return 0; }
+uint8_t CPU6502::TYA() { a = y; SetFlag(Z, a == 0x00); SetFlag(N, a & 0x80); return 0; }
+uint8_t CPU6502::LAX()
+{
+    fetch();
+    a = fetched;
+    x = fetched;
+    SetFlag(Z, a == 0x00);
+    SetFlag(N, a & 0x80);
+    return 1;
+}
 
-                                                    uint8_t CPU6502::SAX()
-                                                    {
-                                                        write(addr_abs, a & x);
-                                                        return 0;
-                                                    }
+uint8_t CPU6502::SAX()
+{
+    write(addr_abs, a & x);
+    return 0;
+}
 
-                                                    uint8_t CPU6502::DCP()
-                                                    {
-                                                        fetch();
+uint8_t CPU6502::DCP()
+{
+    fetch();
 
-                                                        uint8_t value = (fetched - 1) & 0xFF;
-                                                        write(addr_abs, value);
+    uint8_t value = (fetched - 1) & 0xFF;
+    write(addr_abs, value);
 
-                                                        temp = (uint16_t)a - (uint16_t)value;
-                                                        SetFlag(C, a >= value);
-                                                        SetFlag(Z, (temp & 0x00FF) == 0x0000);
-                                                        SetFlag(N, temp & 0x0080);
+    temp = (uint16_t)a - (uint16_t)value;
+    SetFlag(C, a >= value);
+    SetFlag(Z, (temp & 0x00FF) == 0x0000);
+    SetFlag(N, temp & 0x0080);
 
-                                                        return 0;
-                                                    }
+    return 0;
+}
 
-                                                    uint8_t CPU6502::ISC()
-                                                    {
-                                                        fetch();
+uint8_t CPU6502::ISC()
+{
+    fetch();
 
-                                                        uint8_t value = (fetched + 1) & 0xFF;
-                                                        write(addr_abs, value);
+    uint8_t value = (fetched + 1) & 0xFF;
+    write(addr_abs, value);
 
-                                                        value ^= 0xFF;
-                                                        temp = (uint16_t)a + (uint16_t)value + (uint16_t)GetFlag(C);
+    value ^= 0xFF;
+    temp = (uint16_t)a + (uint16_t)value + (uint16_t)GetFlag(C);
 
-                                                        SetFlag(C, temp & 0xFF00);
-                                                        SetFlag(Z, (temp & 0x00FF) == 0);
-                                                        SetFlag(V, ((temp ^ (uint16_t)a) & (temp ^ (uint16_t)value) & 0x0080));
-                                                        SetFlag(N, temp & 0x0080);
+    SetFlag(C, temp & 0xFF00);
+    SetFlag(Z, (temp & 0x00FF) == 0);
+    SetFlag(V, ((temp ^ (uint16_t)a) & (temp ^ (uint16_t)value) & 0x0080));
+    SetFlag(N, temp & 0x0080);
 
-                                                        a = temp & 0x00FF;
-                                                        return 0;
-                                                    }
+    a = temp & 0x00FF;
+    return 0;
+}
 
-                                                    uint8_t CPU6502::SLO()
-                                                    {
-                                                        fetch();
+uint8_t CPU6502::SLO()
+{
+    fetch();
 
-                                                        temp = (uint16_t)fetched << 1;
-                                                        SetFlag(C, temp & 0xFF00);
+    temp = (uint16_t)fetched << 1;
+    SetFlag(C, temp & 0xFF00);
 
-                                                        uint8_t value = temp & 0x00FF;
-                                                        write(addr_abs, value);
+    uint8_t value = temp & 0x00FF;
+    write(addr_abs, value);
 
-                                                        a = a | value;
-                                                        SetFlag(Z, a == 0x00);
-                                                        SetFlag(N, a & 0x80);
+    a = a | value;
+    SetFlag(Z, a == 0x00);
+    SetFlag(N, a & 0x80);
 
-                                                        return 0;
-                                                    }
+    return 0;
+}
 
-                                                    uint8_t CPU6502::RLA()
-                                                    {
-                                                        fetch();
+uint8_t CPU6502::RLA()
+{
+    fetch();
 
-                                                        temp = ((uint16_t)fetched << 1) | GetFlag(C);
-                                                        SetFlag(C, temp & 0xFF00);
+    temp = ((uint16_t)fetched << 1) | GetFlag(C);
+    SetFlag(C, temp & 0xFF00);
 
-                                                        uint8_t value = temp & 0x00FF;
-                                                        write(addr_abs, value);
+    uint8_t value = temp & 0x00FF;
+    write(addr_abs, value);
 
-                                                        a = a & value;
-                                                        SetFlag(Z, a == 0x00);
-                                                        SetFlag(N, a & 0x80);
+    a = a & value;
+    SetFlag(Z, a == 0x00);
+    SetFlag(N, a & 0x80);
 
-                                                        return 0;
-                                                    }
+    return 0;
+}
 
-                                                    uint8_t CPU6502::SRE()
-                                                    {
-                                                        fetch();
+uint8_t CPU6502::SRE()
+{
+    fetch();
 
-                                                        SetFlag(C, fetched & 0x01);
+    SetFlag(C, fetched & 0x01);
 
-                                                        uint8_t value = fetched >> 1;
-                                                        write(addr_abs, value);
+    uint8_t value = fetched >> 1;
+    write(addr_abs, value);
 
-                                                        a = a ^ value;
-                                                        SetFlag(Z, a == 0x00);
-                                                        SetFlag(N, a & 0x80);
+    a = a ^ value;
+    SetFlag(Z, a == 0x00);
+    SetFlag(N, a & 0x80);
 
-                                                        return 0;
-                                                    }
+    return 0;
+}
 
-                                                    uint8_t CPU6502::RRA()
-                                                    {
-                                                        fetch();
+uint8_t CPU6502::RRA()
+{
+    fetch();
 
-                                                        uint8_t oldCarry = GetFlag(C);
-                                                        SetFlag(C, fetched & 0x01);
+    uint8_t oldCarry = GetFlag(C);
+    SetFlag(C, fetched & 0x01);
 
-                                                        uint8_t value = (fetched >> 1) | (oldCarry << 7);
-                                                        write(addr_abs, value);
+    uint8_t value = (fetched >> 1) | (oldCarry << 7);
+    write(addr_abs, value);
 
-                                                        temp = (uint16_t)a + (uint16_t)value + (uint16_t)GetFlag(C);
+    temp = (uint16_t)a + (uint16_t)value + (uint16_t)GetFlag(C);
 
-                                                        SetFlag(C, temp > 255);
-                                                        SetFlag(Z, (temp & 0x00FF) == 0);
-                                                        SetFlag(V, (~((uint16_t)a ^ (uint16_t)value) & ((uint16_t)a ^ (uint16_t)temp)) & 0x0080);
-                                                        SetFlag(N, temp & 0x0080);
+    SetFlag(C, temp > 255);
+    SetFlag(Z, (temp & 0x00FF) == 0);
+    SetFlag(V, (~((uint16_t)a ^ (uint16_t)value) & ((uint16_t)a ^ (uint16_t)temp)) & 0x0080);
+    SetFlag(N, temp & 0x0080);
 
-                                                        a = temp & 0x00FF;
-                                                        return 0;
-                                                    }
-                                                    uint8_t CPU6502::XXX() { return 0; }
+    a = temp & 0x00FF;
+    return 0;
+}
+uint8_t CPU6502::XXX() { return 0; }
 
-                                                    bool CPU6502::complete() {
-                                                        return cycles == 0;
-                                                    }
+bool CPU6502::complete() {
+    return cycles == 0;
+}
 
-                                                    std::string hex(uint32_t n, uint8_t d) {
-                                                        std::string s(d, '0');
-                                                        for (int i = d - 1; i >= 0; i--, n >>= 4)
-                                                            s[i] = "0123456789ABCDEF"[n & 0xF];
-                                                        return s;
-                                                    }
+std::string hex(uint32_t n, uint8_t d) {
+    std::string s(d, '0');
+    for (int i = d - 1; i >= 0; i--, n >>= 4)
+        s[i] = "0123456789ABCDEF"[n & 0xF];
+    return s;
+}
 
-                                                    std::map<uint16_t, std::string> CPU6502::disassemble(uint16_t nStart, uint16_t nStop) {
-                                                        uint32_t addr = nStart;
-                                                        std::map<uint16_t, std::string> mapLines;
-                                                        while (addr <= (uint32_t)nStop) {
-                                                            uint16_t line_addr = addr;
-                                                            std::string sInst = "$ " + hex(addr, 4) + ": ";
+std::map<uint16_t, std::string> CPU6502::disassemble(uint16_t nStart, uint16_t nStop) {
+    uint32_t addr = nStart;
+    std::map<uint16_t, std::string> mapLines;
+    while (addr <= (uint32_t)nStop) {
+        uint16_t line_addr = addr;
+        std::string sInst = "$ " + hex(addr, 4) + ": ";
 
-                                                            mapLines[line_addr] = sInst;
-                                                            addr++;
-                                                        }
-                                                        return mapLines;
-                                                    }
+        mapLines[line_addr] = sInst;
+        addr++;
+    }
+    return mapLines;
+}
 
-                                                    void CPU6502::SaveState(QDataStream& out) const
-                                                    {
-                                                        out << a;
-                                                        out << x;
-                                                        out << y;
-                                                        out << stkp;
-                                                        out << pc;
-                                                        out << status;
+void CPU6502::SaveState(BinaryWriter& out) const
+{
+    out << a;
+    out << x;
+    out << y;
+    out << stkp;
+    out << pc;
+    out << status;
 
-                                                        out << fetched;
-                                                        out << addr_abs;
-                                                        out << addr_rel;
-                                                        out << opcode;
-                                                        out << cycles;
+    out << fetched;
+    out << addr_abs;
+    out << addr_rel;
+    out << opcode;
+    out << cycles;
 
-                                                        out << irq_sources;
-                                                    }
+    out << irq_sources;
+}
 
-                                                    void CPU6502::LoadState(QDataStream& in)
-                                                    {
-                                                        in >> a;
-                                                        in >> x;
-                                                        in >> y;
-                                                        in >> stkp;
-                                                        in >> pc;
-                                                        in >> status;
+void CPU6502::LoadState(BinaryReader& in)
+{
+    in >> a;
+    in >> x;
+    in >> y;
+    in >> stkp;
+    in >> pc;
+    in >> status;
 
-                                                        in >> fetched;
-                                                        in >> addr_abs;
-                                                        in >> addr_rel;
-                                                        in >> opcode;
-                                                        in >> cycles;
+    in >> fetched;
+    in >> addr_abs;
+    in >> addr_rel;
+    in >> opcode;
+    in >> cycles;
 
-                                                        in >> irq_sources;
-                                                    }
+    in >> irq_sources;
+}
 
 #include "CPU6502_CycleAccurate.inc"
