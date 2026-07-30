@@ -22,7 +22,7 @@ public:
     bool irqState() override;
     void irqClear() override;
 
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 
 private:
     uint8_t prgBank[3] = { 0, 1, 2 };     // $8000, $A000, $C000, 8KB

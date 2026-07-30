@@ -17,7 +17,7 @@ public:
 
     void reset() override;
 
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 
 private:
     uint8_t prgBankSelect = 0; // PRG bank 32KB

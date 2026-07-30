@@ -60,41 +60,29 @@ bool Mapper_001::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
                     nPRGBankSelect16Lo = nLoadRegister & 0x0F;
                 }
 
-                // ==========================================
-                // THỰC THI LẬT BANK CHR (Hình ảnh)
-                // ==========================================
                 if (nControlRegister & 0x10) {
-                    // Chế độ 4KB: Chia làm 2 Bank độc lập
                     pCHRBank[0] = nCHRBankSelect4Lo * 0x1000;
                     pCHRBank[1] = nCHRBankSelect4Hi * 0x1000;
                 }
                 else {
-                    // Chế độ 8KB: Ghép 2 Bank làm 1
                     pCHRBank[0] = (nCHRBankSelect4Lo & 0xFE) * 0x1000;
                     pCHRBank[1] = pCHRBank[0] + 0x1000;
                 }
 
-                // ==========================================
-                // THỰC THI LẬT BANK PRG (Code)
-                // ==========================================
                 uint8_t nPRGMode = (nControlRegister >> 2) & 0x03;
                 if (nPRGMode == 0 || nPRGMode == 1) {
-                    // Chế độ 32KB
                     pPRGBank[0] = (nPRGBankSelect16Lo & 0x0E) * 0x4000;
                     pPRGBank[1] = pPRGBank[0] + 0x4000;
                 }
                 else if (nPRGMode == 2) {
-                    // Cố định 0x8000, lật 0xC000
                     pPRGBank[0] = 0;
                     pPRGBank[1] = nPRGBankSelect16Lo * 0x4000;
                 }
                 else if (nPRGMode == 3) {
-                    // Lật 0x8000, cố định 0xC000 (Chế độ phổ biến nhất)
                     pPRGBank[0] = nPRGBankSelect16Lo * 0x4000;
                     pPRGBank[1] = (nPRGBanks - 1) * 0x4000;
                 }
 
-                // Đổ túi, chuẩn bị cho 5 đồng xu tiếp theo
                 nLoadRegister = 0x00;
                 nLoadRegisterCount = 0;
             }
@@ -119,12 +107,10 @@ bool Mapper_001::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 bool Mapper_001::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
     if (addr < 0x2000) {
         if (nCHRBanks == 0) {
-            // Băng game dùng RAM Đồ họa (Ví dụ: The Legend of Zelda)
             mapped_addr = addr;
             return true;
         }
         else {
-            // Băng game dùng ROM Đồ họa
             if (addr >= 0x0000 && addr <= 0x0FFF) {
                 mapped_addr = pCHRBank[0] + (addr & 0x0FFF);
                 return true;
@@ -139,7 +125,6 @@ bool Mapper_001::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 }
 
 bool Mapper_001::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
-    // CHỈ cho phép ghi hình ảnh nếu game dùng RAM đồ họa (CHR RAM)
     if (addr < 0x2000) {
         if (nCHRBanks == 0) {
             mapped_addr = addr;
@@ -149,18 +134,18 @@ bool Mapper_001::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     return false;
 }
 
-QString Mapper_001::GetDebugInfo()
+std::string Mapper_001::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Hardware / Không rõ";
+        default:                   return "Hardware / Khong ro";
         }
         };
 
@@ -170,52 +155,46 @@ QString Mapper_001::GetDebugInfo()
 
     s += "===== MAPPER 001 - MMC1 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Kiểu mirroring    : %1\n").arg(mirrorToString(currentMirror));
+    s += "THONG TIN CHUNG:\n";
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "Kieu mirroring    : " + mirrorToString(currentMirror) + "\n";
 
-    s += "\nTHANH GHI ĐIỀU KHIỂN MMC1:\n";
-    s += QString("Control Register  : 0x%1\n")
-        .arg(nControlRegister, 2, 16, QChar('0')).toUpper();
-    s += QString("Mirror bits       : %1\n").arg(mirrorMode);
-    s += QString("PRG mode          : %1 - ").arg(prgMode);
+    s += "\nTHANH GHI DIEU KHIEN MMC1:\n";
+    s += "Control Register  : 0x" + HexStr(nControlRegister, 2) + "\n";
+    s += "Mirror bits       : " + std::to_string(mirrorMode) + "\n";
+    s += "PRG mode          : " + std::to_string(prgMode) + " - ";
 
     if (prgMode == 0 || prgMode == 1)
-        s += "32KB switch tại $8000-$FFFF\n";
+        s += "32KB switch tai $8000-$FFFF\n";
     else if (prgMode == 2)
-        s += "Cố định bank đầu tại $8000, đổi bank tại $C000\n";
+        s += "Co dinh bank dau tai $8000, doi bank tai $C000\n";
     else
-        s += "Đổi bank tại $8000, cố định bank cuối tại $C000\n";
+        s += "Doi bank tai $8000, co dinh bank cuoi tai $C000\n";
 
-    s += QString("CHR mode          : %1 - ").arg(chrMode);
-    s += (chrMode ? "2 bank CHR 4KB riêng\n" : "1 bank CHR 8KB\n");
+    s += "CHR mode          : " + std::to_string(chrMode) + " - ";
+    s += (chrMode ? "2 bank CHR 4KB rieng\n" : "1 bank CHR 8KB\n");
 
-    s += "\nBỘ GHI DỊCH MMC1:\n";
-    s += QString("Load Register     : 0x%1\n")
-        .arg(nLoadRegister, 2, 16, QChar('0')).toUpper();
-    s += QString("Số bit đã nạp     : %1 / 5\n").arg(nLoadRegisterCount);
+    s += "\nBO GHI DICH MMC1:\n";
+    s += "Load Register     : 0x" + HexStr(nLoadRegister, 2) + "\n";
+    s += "So bit da nap     : " + std::to_string(nLoadRegisterCount) + " / 5\n";
 
-    s += "\nTHANH GHI CHỌN BANK:\n";
-    s += QString("CHR 4KB Low       : %1\n").arg(nCHRBankSelect4Lo);
-    s += QString("CHR 4KB High      : %1\n").arg(nCHRBankSelect4Hi);
-    s += QString("CHR 8KB           : %1\n").arg(nCHRBankSelect8);
-    s += QString("PRG 16KB Low      : %1\n").arg(nPRGBankSelect16Lo);
-    s += QString("PRG 16KB High     : %1\n").arg(nPRGBankSelect16Hi);
-    s += QString("PRG 32KB          : %1\n").arg(nPRGBankSelect32);
+    s += "\nTHANH GHI CHON BANK:\n";
+    s += "CHR 4KB Low       : " + std::to_string(nCHRBankSelect4Lo) + "\n";
+    s += "CHR 4KB High      : " + std::to_string(nCHRBankSelect4Hi) + "\n";
+    s += "CHR 8KB           : " + std::to_string(nCHRBankSelect8) + "\n";
+    s += "PRG 16KB Low      : " + std::to_string(nPRGBankSelect16Lo) + "\n";
+    s += "PRG 16KB High     : " + std::to_string(nPRGBankSelect16Hi) + "\n";
+    s += "PRG 32KB          : " + std::to_string(nPRGBankSelect32) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$BFFF : offset ROM = 0x%1 | PRG bank 16KB = %2\n")
-        .arg(pPRGBank[0], 6, 16, QChar('0'))
-        .arg(pPRGBank[0] / 0x4000)
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$BFFF : offset ROM = 0x" + HexStr(pPRGBank[0], 6) +
+        " | PRG bank 16KB = " + std::to_string(pPRGBank[0] / 0x4000) + "\n";
 
-    s += QString("$C000-$FFFF : offset ROM = 0x%1 | PRG bank 16KB = %2\n")
-        .arg(pPRGBank[1], 6, 16, QChar('0'))
-        .arg(pPRGBank[1] / 0x4000)
-        .toUpper();
+    s += "$C000-$FFFF : offset ROM = 0x" + HexStr(pPRGBank[1], 6) +
+        " | PRG bank 16KB = " + std::to_string(pPRGBank[1] / 0x4000) + "\n";
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
 
     if (nCHRBanks == 0)
     {
@@ -223,20 +202,16 @@ QString Mapper_001::GetDebugInfo()
     }
     else
     {
-        s += QString("$0000-$0FFF : offset CHR = 0x%1 | CHR bank 4KB = %2\n")
-            .arg(pCHRBank[0], 6, 16, QChar('0'))
-            .arg(pCHRBank[0] / 0x1000)
-            .toUpper();
+        s += "$0000-$0FFF : offset CHR = 0x" + HexStr(pCHRBank[0], 6) +
+            " | CHR bank 4KB = " + std::to_string(pCHRBank[0] / 0x1000) + "\n";
 
-        s += QString("$1000-$1FFF : offset CHR = 0x%1 | CHR bank 4KB = %2\n")
-            .arg(pCHRBank[1], 6, 16, QChar('0'))
-            .arg(pCHRBank[1] / 0x1000)
-            .toUpper();
+        s += "$1000-$1FFF : offset CHR = 0x" + HexStr(pCHRBank[1], 6) +
+            " | CHR bank 4KB = " + std::to_string(pCHRBank[1] / 0x1000) + "\n";
     }
 
-    s += "\nGHI CHÚ:\n";
-    s += "MMC1 nạp từng bit vào shift register. Khi đủ 5 bit, mapper mới chốt vào thanh ghi đích.\n";
-    s += "Vì vậy Load Register và số bit đã nạp có thể thay đổi rất nhanh khi game đang chạy.\n";
+    s += "\nGHI CHU:\n";
+    s += "MMC1 nap tung bit vao shift register. Khi du 5 bit, mapper moi chot vao thanh ghi dich.\n";
+    s += "Vi vay Load Register va so bit da nap co the thay doi rat nhanh khi game dang chay.\n";
 
     return s;
 }

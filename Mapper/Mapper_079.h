@@ -21,5 +21,5 @@ public:
 
     void reset() override;
 
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 };

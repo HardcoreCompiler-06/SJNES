@@ -24,29 +24,20 @@ public:
     void irqStep() override;
     bool irqState() override;
     void irqClear() override;
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
     float GetExpansionAudio() override;
     void GetExpansionAudioStereo(float& left, float& right) override;
     uint8_t GetNtSource(int index) const;
 private:
-    // VRC6 PRG
     uint8_t prg16Bank = 0; // $8000-$BFFF, 16KB
     uint8_t prg8Bank = 0; // $C000-$DFFF, 8KB
-
-    // VRC6 CHR registers R0-R7, 1KB each
     uint8_t chrBank[8] = {};
-
-    // $B003 PPU control
     uint8_t b003 = 0x20;
     uint8_t ppuBankingMode = 0;       // bits 0-1
     bool useChrRomNametables = false; // bit 4
     bool chrA10Control = true;        // bit 5
     bool prgRamEnable = false;        // bit 7
     MIRROR mirrorMode = MIRROR::VERTICAL;
-
-    // VRC6 nametable banking
-    // ntSource[] is used for CIRAM A/B selection when CHR-ROM nametables are off.
-    // ntChrBank[] is used when $B003 bit 4 enables CHR-ROM nametables.
     uint8_t ntSource[4] = { 0, 1, 0, 1 };
     uint8_t ntChrBank[4] = { 0, 0, 0, 0 };
 
@@ -77,13 +68,14 @@ private:
     {
         uint8_t rate = 0;
         bool enable = false;
-
         uint16_t period = 0;
         uint16_t timer = 0;
-
         uint8_t step = 0;
         uint8_t accumulator = 0;
-
+        uint16_t debugTimer = 0;
+        uint8_t  debugStep = 0;
+        float    debugCyclePeak = 0.0f; // biên độ ĐÓNG BĂNG trong suốt 1 chu kỳ 14-step,        
+        uint16_t debugSubstepPeriod = 0; 
         float phase = 0.0f;
         float output = 0.0f;
         float prev_output = 0.0f;

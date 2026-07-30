@@ -1,5 +1,4 @@
 #include "Mapper_004.h"
-#include <Qdebug>
 Mapper_004::Mapper_004(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) {
     reset();
 }
@@ -142,7 +141,7 @@ bool Mapper_004::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
 // MMC3 IRQ must be held as an IRQ source/line.
 // Do not discard IRQ just because I flag is currently set,
 // otherwise split-screen HUD may jitter in games like "Contra Force".
-// lỗi hud có thể do CPU sai IRQ (mất 7 tháng để tìm ra lỗi)
+// lỗi irq có thể do CPU sai IRQ (mất 3 tháng để tìm ra lỗi)
 void Mapper_004::ClockA12()
 {
     if (nIRQCounter == 0 || bIRQUpdate)
@@ -166,67 +165,60 @@ void Mapper_004::irqClear() { bIRQActive = false; }
 MIRROR Mapper_004::mirror() {
     return mirrormode;
 }
-QString Mapper_004::GetDebugInfo()
-{
-    QString s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+std::string Mapper_004::GetDebugInfo()
+{
+    std::string s;
+
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Hardware / Không rõ";
+        default:                   return "Hardware / Khong ro";
         }
         };
 
     s += "===== MAPPER 004 - MMC3 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 8KB  : %1\n").arg(nPRGBanks * 2);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Số CHR banks 1KB  : %1\n").arg(nCHRBanks == 0 ? 8 : nCHRBanks * 8);
-    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrormode));
+    s += "THONG TIN CHUNG:\n";
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 8KB  : " + std::to_string(nPRGBanks * 2) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "So CHR banks 1KB  : " + std::to_string(nCHRBanks == 0 ? 8 : nCHRBanks * 8) + "\n";
+    s += "Mirroring         : " + mirrorToString(mirrormode) + "\n";
 
     s += "\nTHANH GHI BANK SELECT:\n";
-    s += QString("Target Register R : %1\n").arg(nTargetRegister);
-    s += QString("PRG Bank Mode     : %1\n").arg(bPRGBankMode ? "1 - cố định bank áp chót tại $8000" : "0 - cố định bank áp chót tại $C000");
-    s += QString("CHR Inversion     : %1\n").arg(bCHRInversion ? "BẬT - đảo vùng CHR $0000/$1000" : "TẮT");
+    s += "Target Register R : " + std::to_string(nTargetRegister) + "\n";
+    s += std::string("PRG Bank Mode     : ") + (bPRGBankMode ? "1 - co dinh bank ap chot tai $8000" : "0 - co dinh bank ap chot tai $C000") + "\n";
+    s += std::string("CHR Inversion     : ") + (bCHRInversion ? "BAT - dao vung CHR $0000/$1000" : "TAT") + "\n";
 
     s += "\n8 THANH GHI R0-R7:\n";
     for (int i = 0; i < 8; i++)
     {
-        s += QString("R%1 = %2\n").arg(i).arg(pRegister[i]);
+        s += "R" + std::to_string(i) + " = " + std::to_string(pRegister[i]) + "\n";
     }
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$9FFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
-        .arg(pPRGBank[0], 6, 16, QChar('0'))
-        .arg(pPRGBank[0] / 0x2000)
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$9FFF : offset ROM = 0x" + HexStr(pPRGBank[0], 6) +
+        " | PRG bank 8KB = " + std::to_string(pPRGBank[0] / 0x2000) + "\n";
 
-    s += QString("$A000-$BFFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
-        .arg(pPRGBank[1], 6, 16, QChar('0'))
-        .arg(pPRGBank[1] / 0x2000)
-        .toUpper();
+    s += "$A000-$BFFF : offset ROM = 0x" + HexStr(pPRGBank[1], 6) +
+        " | PRG bank 8KB = " + std::to_string(pPRGBank[1] / 0x2000) + "\n";
 
-    s += QString("$C000-$DFFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
-        .arg(pPRGBank[2], 6, 16, QChar('0'))
-        .arg(pPRGBank[2] / 0x2000)
-        .toUpper();
+    s += "$C000-$DFFF : offset ROM = 0x" + HexStr(pPRGBank[2], 6) +
+        " | PRG bank 8KB = " + std::to_string(pPRGBank[2] / 0x2000) + "\n";
 
-    s += QString("$E000-$FFFF : offset ROM = 0x%1 | PRG bank 8KB = %2\n")
-        .arg(pPRGBank[3], 6, 16, QChar('0'))
-        .arg(pPRGBank[3] / 0x2000)
-        .toUpper();
+    s += "$E000-$FFFF : offset ROM = 0x" + HexStr(pPRGBank[3], 6) +
+        " | PRG bank 8KB = " + std::to_string(pPRGBank[3] / 0x2000) + "\n";
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
 
     if (nCHRBanks == 0)
     {
-        s += "Game dùng CHR RAM. Các offset dưới đây là offset trong CHR RAM.\n";
+        s += "Game dung CHR RAM. Cac offset duoi day la offset trong CHR RAM.\n";
     }
 
     const char* chrRanges[8] = {
@@ -242,25 +234,22 @@ QString Mapper_004::GetDebugInfo()
 
     for (int i = 0; i < 8; i++)
     {
-        s += QString("%1 : offset CHR = 0x%2 | CHR bank 1KB = %3\n")
-            .arg(chrRanges[i])
-            .arg(pCHRBank[i], 6, 16, QChar('0'))
-            .arg(pCHRBank[i] / 0x0400)
-            .toUpper();
+        s += std::string(chrRanges[i]) + " : offset CHR = 0x" + HexStr(pCHRBank[i], 6) +
+            " | CHR bank 1KB = " + std::to_string(pCHRBank[i] / 0x0400) + "\n";
     }
 
-    s += "\nTHÔNG TIN IRQ MMC3:\n";
-    s += QString("IRQ Enable        : %1\n").arg(bIRQEnable ? "BẬT" : "TẮT");
-    s += QString("IRQ Active        : %1\n").arg(bIRQActive ? "CÓ" : "KHÔNG");
-    s += QString("IRQ Reload/Update : %1\n").arg(bIRQUpdate ? "CÓ" : "KHÔNG");
-    s += QString("IRQ Counter       : %1\n").arg(nIRQCounter);
-    s += QString("IRQ Latch         : %1\n").arg(nIRQLatch);
+    s += "\nTHONG TIN IRQ MMC3:\n";
+    s += std::string("IRQ Enable        : ") + (bIRQEnable ? "BAT" : "TAT") + "\n";
+    s += std::string("IRQ Active        : ") + (bIRQActive ? "CO" : "KHONG") + "\n";
+    s += std::string("IRQ Reload/Update : ") + (bIRQUpdate ? "CO" : "KHONG") + "\n";
+    s += "IRQ Counter       : " + std::to_string(nIRQCounter) + "\n";
+    s += "IRQ Latch         : " + std::to_string(nIRQLatch) + "\n";
 
-    s += "\nGIẢI THÍCH NHANH:\n";
-    s += "MMC3 dùng R0-R5 để chọn CHR bank và R6-R7 để chọn PRG bank.\n";
-    s += "PRG bank có kích thước 8KB, nên offset ROM thường nhảy theo 0x2000.\n";
-    s += "CHR bank có kích thước 1KB, nên offset CHR thường nhảy theo 0x0400.\n";
-    s += "IRQ MMC3 thường dùng để chia màn hình, ví dụ HUD cố định và nền cuộn riêng.\n";
+    s += "\nGIAI THICH NHANH:\n";
+    s += "MMC3 dung R0-R5 de chon CHR bank va R6-R7 de chon PRG bank.\n";
+    s += "PRG bank co kich thuoc 8KB, nen offset ROM thuong nhay theo 0x2000.\n";
+    s += "CHR bank co kich thuoc 1KB, nen offset CHR thuong nhay theo 0x0400.\n";
+    s += "IRQ MMC3 thuong dung de chia man hinh, vi du HUD co dinh va nen cuon rieng.\n";
 
     return s;
 }

@@ -15,33 +15,22 @@ public:
     MIRROR mirror() override { return currentMirror; }
     // Bắt buộc phải có hàm reset cho MMC1
     void reset() override;
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 private:
-    // ========================================================
     // CÁC THANH GHI CHỌN BANK (BANK SELECT REGISTERS)
-    // ========================================================
     MIRROR currentMirror = MIRROR::HORIZONTAL;
     // Bank hình ảnh (CHR)
     uint8_t nCHRBankSelect4Lo = 0x00;
     uint8_t nCHRBankSelect4Hi = 0x00;
     uint8_t nCHRBankSelect8 = 0x00;
-
     // Bank code game (PRG)
     uint8_t nPRGBankSelect16Lo = 0x00;
     uint8_t nPRGBankSelect16Hi = 0x00;
     uint8_t nPRGBankSelect32 = 0x00;
-
-    // ========================================================
-    // BỘ GHI DỊCH VÀ ĐIỀU KHIỂN (SHIFT & CONTROL REGISTERS)
-    // ========================================================
-
     // Cái túi để nhét từng bit một (đủ 5 bit thì chốt đơn)
     uint8_t nLoadRegister = 0x00;
-
     // Đếm xem CPU đã nhét được mấy bit vào túi rồi
     uint8_t nLoadRegisterCount = 0x00;
-
-    // Thanh ghi điều khiển chính (Quyết định chế độ lật Bank và Mirroring màn hình)
     // Khởi tạo mặc định là 0x1C (0b11100) theo chuẩn phần cứng để game không bị crash lúc mới bật
     uint8_t nControlRegister = 0x1C;
     uint32_t pPRGBank[2] = { 0 };

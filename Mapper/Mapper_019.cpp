@@ -1,6 +1,5 @@
 #include "Mapper_019.h"
 #include "Namco163Audio.h"
-#include <QDebug>
 
 Mapper_019::Mapper_019(
     uint8_t prgBanks,
@@ -23,9 +22,6 @@ void Mapper_019::reset()
     // 8 slot đầu: pattern table $0000-$1FFF
     for (int i = 0; i < 8; i++)
         chr[i] = i;
-
-    // 4 slot sau: nametable $2000-$2FFF
-    // Mặc định phải trỏ về CIRAM, nếu không background sẽ đen chỉ còn sprite.
     chr[8] = 0xE0;
     chr[9] = 0xE1;
     chr[10] = 0xE0;
@@ -39,9 +35,7 @@ void Mapper_019::reset()
 
     n163.Reset();
     n163.SetVolume(0.35f);
-    n163.SetAccurateMultiplex(false);
-
-    qDebug() << "Mapper019 RESET";
+    n163.SetAccurateMultiplex(false);  
 }
 
 bool Mapper_019::cpuReadRegister(uint16_t addr, uint8_t& data)
@@ -85,7 +79,7 @@ bool Mapper_019::cpuMapRead(
 
 bool Mapper_019::cpuMapWrite(uint16_t addr, uint32_t& mapped, uint8_t data)
 {
-    Q_UNUSED(mapped);
+    (void)(mapped);
 
     // $4800-$4FFF: N163 data port
     // Ghi vào 128 byte sound RAM bên trong chip
@@ -114,7 +108,6 @@ bool Mapper_019::cpuMapWrite(uint16_t addr, uint32_t& mapped, uint8_t data)
 
         // Ghi IRQ register sẽ acknowledge IRQ
         irq_active = false;
-
         return true;
     }
 
@@ -347,7 +340,7 @@ void Mapper_019::clock()
     if (irq_counter < 0x7FFF)
     {
         irq_counter++;
-        
+
         if (irq_counter >= 0x7FFF)
         {
             irq_counter = 0x7FFF;

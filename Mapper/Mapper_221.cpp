@@ -129,18 +129,18 @@ MIRROR Mapper_221::mirror()
     return mirrorMode;
 }
 
-QString Mapper_221::GetDebugInfo()
+std::string Mapper_221::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Không rõ";
+        default:                   return "Khong ro";
         }
         };
 
@@ -148,49 +148,45 @@ QString Mapper_221::GetDebugInfo()
 
     s += "===== MAPPER 221 - NTDEC N625092 / MULTICART =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper này thường gặp ở băng multicart.\n";
-    s += "Bank được chọn chủ yếu bằng địa chỉ ghi, data thường không quan trọng.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper nay thuong gap o bang multicart.\n";
+    s += "Bank duoc chon chu yeu bang dia chi ghi, data thuong khong quan trong.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrorMode));
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "Mirroring         : " + mirrorToString(mirrorMode) + "\n";
 
     s += "\nTHANH GHI MULTICART:\n";
-    s += QString("cmd  : 0x%1\n").arg(cmd, 4, 16, QChar('0')).toUpper();
-    s += QString("bank : %1\n").arg(bank);
-    s += QString("base : %1\n").arg(base);
+    s += "cmd  : 0x" + HexStr(cmd, 4) + "\n";
+    s += "bank : " + std::to_string(bank) + "\n";
+    s += "base : " + std::to_string(base) + "\n";
 
-    s += "\nGIẢI MÃ CMD:\n";
-    s += QString("cmd bit 0 - Mirroring      : %1\n").arg(cmd & 0x0001 ? "Horizontal" : "Vertical");
-    s += QString("cmd bit 1 - Mode           : %1\n").arg(cmd & 0x0002 ? "16KB switch" : "32KB style");
-    s += QString("cmd bit 8 - 16KB sub-mode  : %1\n").arg(cmd & 0x0100 ? "$8000=base|bank, $C000=base|7" : "$8000 even, $C000 odd");
+    s += "\nGIAI MA CMD:\n";
+    s += std::string("cmd bit 0 - Mirroring      : ") + (cmd & 0x0001 ? "Horizontal" : "Vertical") + "\n";
+    s += std::string("cmd bit 1 - Mode           : ") + (cmd & 0x0002 ? "16KB switch" : "32KB style") + "\n";
+    s += std::string("cmd bit 8 - 16KB sub-mode  : ") + (cmd & 0x0100 ? "$8000=base|bank, $C000=base|7" : "$8000 even, $C000 odd") + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$BFFF : PRG bank 16KB = %1 | offset ROM = 0x%2\n")
-        .arg(prgBank8000)
-        .arg(prgBank8000 * 0x4000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$BFFF : PRG bank 16KB = " + std::to_string(prgBank8000) +
+        " | offset ROM = 0x" + HexStr(prgBank8000 * 0x4000, 6) + "\n";
 
-    s += QString("$C000-$FFFF : PRG bank 16KB = %1 | offset ROM = 0x%2\n")
-        .arg(prgBankC000)
-        .arg(prgBankC000 * 0x4000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$C000-$FFFF : PRG bank 16KB = " + std::to_string(prgBankC000) +
+        " | offset ROM = 0x" + HexStr(prgBankC000 * 0x4000, 6) + "\n";
 
     s += "\nCHR MAPPING:\n";
     if (nCHRBanks == 0)
     {
-        s += "$0000-$1FFF : CHR RAM 8KB, PPU có thể ghi\n";
+        s += "$0000-$1FFF : CHR RAM 8KB, PPU co the ghi\n";
     }
     else
     {
-        s += "$0000-$1FFF : CHR ROM/RAM map thẳng\n";
+        s += "$0000-$1FFF : CHR ROM/RAM map thang\n";
     }
 
-    s += "\nGHI CHÚ:\n";
-    s += "Ghi $8000-$BFFF cập nhật cmd.\n";
-    s += "Ghi $C000-$FFFF cập nhật bank = addr & 7.\n";
-    s += "Sau mỗi lần ghi, Sync() sẽ tính lại PRG bank và mirroring.\n";
+    s += "\nGHI CHU:\n";
+    s += "Ghi $8000-$BFFF cap nhat cmd.\n";
+    s += "Ghi $C000-$FFFF cap nhat bank = addr & 7.\n";
+    s += "Sau moi lan ghi, Sync() se tinh lai PRG bank va mirroring.\n";
 
     return s;
 }

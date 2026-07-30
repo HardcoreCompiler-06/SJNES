@@ -18,7 +18,7 @@ public:
     void reset() override;
     MIRROR mirror() override;
 
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 
 private:
     uint8_t prgBankSelect = 0;

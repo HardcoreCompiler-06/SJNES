@@ -22,5 +22,5 @@ public:
 
     void reset() override;
     MIRROR mirror() override; // Ghi đè hàm mirror để xử lý cuộn màn hình tự động
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 };

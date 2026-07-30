@@ -25,7 +25,7 @@ public:
     bool irqState() override;
     void irqClear() override;
 
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 
     MIRROR mirror() override { return mirrorMode; }
     void GetVrc7DebugChannels(
@@ -52,12 +52,12 @@ private:
     bool irqEnabled = false;
     bool irqEnableAfterAck = false;
     bool irqPending = false;
-
+    bool irqCycleMode = false;
     uint8_t irqLatch = 0;
     uint8_t irqCounter = 0;
     int irqPrescaler = 341;
-
-    // VRC7 / OPLL audio
+    uint32_t totalIrqStepCalls = 0;
+    uint32_t lastFireCycle = 0;
     OPLL* opll = nullptr;
 
     uint8_t audioAddr = 0;

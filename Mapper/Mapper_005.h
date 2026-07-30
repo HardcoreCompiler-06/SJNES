@@ -58,8 +58,7 @@ public:
 
     float GetExpansionAudio() override;
 
-    QString GetDebugInfo() override;
-
+    std::string GetDebugInfo() override;
 private:
     ChrFetchMode chrFetchMode = ChrFetchMode::Background;
 

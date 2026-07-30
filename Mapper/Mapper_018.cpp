@@ -271,18 +271,18 @@ void Mapper_018::irqClear()
     irqActive = false;
 }
 
-QString Mapper_018::GetDebugInfo()
+std::string Mapper_018::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Không rõ";
+        default:                   return "Khong ro";
         }
         };
 
@@ -294,17 +294,17 @@ QString Mapper_018::GetDebugInfo()
 
     s += "===== MAPPER 018 - JALECO SS88006 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper này dùng PRG bank 8KB, CHR bank 1KB và IRQ.\n";
-    s += "PRG/CHR bank number bị tách thành low nibble và high nibble.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper nay dung PRG bank 8KB, CHR bank 1KB va IRQ.\n";
+    s += "PRG/CHR bank number bi tach thanh low nibble va high nibble.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 8KB  : %1\n").arg(prg8Count);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Số CHR banks 1KB  : %1\n").arg(chr1kCount);
-    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrorMode));
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 8KB  : " + std::to_string(prg8Count) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "So CHR banks 1KB  : " + std::to_string(chr1kCount) + "\n";
+    s += "Mirroring         : " + mirrorToString(mirrorMode) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += "\nPRG BANK HIEN TAI:\n";
     const char* prgRange[4] = {
         "$8000-$9FFF",
         "$A000-$BFFF",
@@ -321,40 +321,34 @@ QString Mapper_018::GetDebugInfo()
 
     for (int i = 0; i < 4; i++)
     {
-        s += QString("%1 : PRG bank 8KB = %2 | offset ROM = 0x%3\n")
-            .arg(prgRange[i])
-            .arg(prgMap[i])
-            .arg(prgMap[i] * 0x2000, 6, 16, QChar('0'))
-            .toUpper();
+        s += std::string(prgRange[i]) + " : PRG bank 8KB = " + std::to_string(prgMap[i]) +
+            " | offset ROM = 0x" + HexStr(prgMap[i] * 0x2000, 6) + "\n";
     }
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
     for (int i = 0; i < 8; i++)
     {
         uint16_t start = i * 0x0400;
         uint32_t realBank = chrBank[i] % chr1kCount;
 
-        s += QString("$%1-$%2 : CHR bank 1KB = %3 | offset CHR = 0x%4\n")
-            .arg(start, 4, 16, QChar('0'))
-            .arg(start + 0x03FF, 4, 16, QChar('0'))
-            .arg(realBank)
-            .arg(realBank * 0x0400, 6, 16, QChar('0'))
-            .toUpper();
+        s += "$" + HexStr(start, 4) + "-$" + HexStr(start + 0x03FF, 4) +
+            " : CHR bank 1KB = " + std::to_string(realBank) +
+            " | offset CHR = 0x" + HexStr(realBank * 0x0400, 6) + "\n";
     }
 
-    s += "\nTHÔNG TIN IRQ:\n";
-    s += QString("IRQ Enable   : %1\n").arg(irqEnable ? "BẬT" : "TẮT");
-    s += QString("IRQ Active   : %1\n").arg(irqActive ? "CÓ" : "KHÔNG");
-    s += QString("IRQ Reload   : %1\n").arg(irqReload);
-    s += QString("IRQ Counter  : %1\n").arg(irqCounter);
-    s += QString("IRQ Control  : 0x%1\n").arg(irqControl, 2, 16, QChar('0')).toUpper();
-    s += QString("IRQ Mask     : 0x%1\n").arg(GetIRQMask(), 4, 16, QChar('0')).toUpper();
+    s += "\nTHONG TIN IRQ:\n";
+    s += std::string("IRQ Enable   : ") + (irqEnable ? "BAT" : "TAT") + "\n";
+    s += std::string("IRQ Active   : ") + (irqActive ? "CO" : "KHONG") + "\n";
+    s += "IRQ Reload   : " + std::to_string(irqReload) + "\n";
+    s += "IRQ Counter  : " + std::to_string(irqCounter) + "\n";
+    s += "IRQ Control  : 0x" + HexStr(irqControl, 2) + "\n";
+    s += "IRQ Mask     : 0x" + HexStr(GetIRQMask(), 4) + "\n";
 
-    s += "\nGHI CHÚ:\n";
+    s += "\nGHI CHU:\n";
     s += "$8000/$8001: PRG0 low/high nibble\n";
     s += "$8002/$8003: PRG1 low/high nibble\n";
     s += "$9000/$9001: PRG2 low/high nibble\n";
-    s += "$A000-$D003: 8 thanh ghi CHR, mỗi bank 1KB\n";
+    s += "$A000-$D003: 8 thanh ghi CHR, moi bank 1KB\n";
     s += "$E000-$E003: IRQ reload 16-bit theo 4 nibble\n";
     s += "$F000: reload IRQ counter\n";
     s += "$F001: IRQ enable/control\n";

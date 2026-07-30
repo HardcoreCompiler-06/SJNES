@@ -121,14 +121,14 @@ MIRROR Mapper_075::mirror()
     return (mirroring_mode == 1) ? MIRROR::HORIZONTAL : MIRROR::VERTICAL;
 }
 
-QString Mapper_075::GetDebugInfo()
+std::string Mapper_075::GetDebugInfo()
 {
-    QString s;
+    std::string s;
     s += "===== DEBUG VRC1 (MAPPER 075) =====\n\n";
-    s += QString("PRG Bank 0: %1\n").arg(prg_bank[0]);
-    s += QString("PRG Bank 1: %1\n").arg(prg_bank[1]);
-    s += QString("PRG Bank 2: %1\n").arg(prg_bank[2]);
-    s += QString("CHR Bank 0: %1\n").arg(chr_bank[0]);
-    s += QString("CHR Bank 1: %1\n").arg(chr_bank[1]);
+    s += "PRG Bank 0: " + std::to_string(prg_bank[0]) + "\n";
+    s += "PRG Bank 1: " + std::to_string(prg_bank[1]) + "\n";
+    s += "PRG Bank 2: " + std::to_string(prg_bank[2]) + "\n";
+    s += "CHR Bank 0: " + std::to_string(chr_bank[0]) + "\n";
+    s += "CHR Bank 1: " + std::to_string(chr_bank[1]) + "\n";
     return s;
 }

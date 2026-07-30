@@ -87,7 +87,6 @@ bool Mapper_068::cpuMapWrite(
 
     if (addr < 0x8000)
         return false;
-
     switch (addr & 0xF000)
     {
     case 0x8000:
@@ -115,15 +114,12 @@ bool Mapper_068::cpuMapWrite(
         break;
 
     case 0xC000:
-        // SỬA Ở ĐÂY: Phải OR với 0x80 theo spec của mạch Sunsoft-4
-        ntRegs[0] = data | 0x80;
-
+      
+        ntRegs[0] = data | 0x80;     
         break;
 
     case 0xD000:
-        // SỬA Ở ĐÂY: Phải OR với 0x80
         ntRegs[1] = data | 0x80;
-
         break;
 
     case 0xE000:
@@ -133,7 +129,6 @@ bool Mapper_068::cpuMapWrite(
 
         useChrForNametables =
             (data & 0x10);
-
         break;
 
     case 0xF000:
@@ -172,9 +167,7 @@ bool Mapper_068::cpuMapWrite(
     return false;
 }
 
-//================================================
 // PPU READ
-//================================================
 bool Mapper_068::ppuMapRead(
     uint16_t addr,
     uint32_t& mapped_addr)
@@ -183,9 +176,6 @@ bool Mapper_068::ppuMapRead(
     {
         uint8_t bank = addr >> 11;
         uint32_t currentBank = chrRegs[bank];
-
-        // SỬA Ở ĐÂY: Wrap-around cho bank 2KB. 
-        // 1 chunk nCHRBanks (8KB) = 4 bank 2KB.
         if (nCHRBanks > 0)
         {
             currentBank %= (nCHRBanks * 4);
@@ -210,9 +200,7 @@ bool Mapper_068::ppuMapRead(
     return false;
 }
 
-//================================================
 // PPU WRITE
-//================================================
 bool Mapper_068::ppuMapWrite(
     uint16_t addr,
     uint32_t& mapped_addr)
@@ -251,9 +239,7 @@ bool Mapper_068::ppuMapWrite(
     return false;
 }
 
-//================================================
 // NAMETABLE
-//================================================
 uint32_t Mapper_068::ResolveNametable(uint16_t addr)
 {
     uint8_t slot = (addr >> 10) & 3;

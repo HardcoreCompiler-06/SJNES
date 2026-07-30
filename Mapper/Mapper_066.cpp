@@ -81,9 +81,9 @@ bool Mapper_066::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr)
     return false;
 }
 
-QString Mapper_066::GetDebugInfo()
+std::string Mapper_066::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
     uint32_t prg32Count = nPRGBanks / 2;
     if (prg32Count == 0)
@@ -91,42 +91,38 @@ QString Mapper_066::GetDebugInfo()
 
     s += "===== MAPPER 066 - GXROM / GNROM =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper này dùng PRG bank 32KB và CHR bank 8KB.\n";
-    s += "CPU ghi vào $8000-$FFFF để chọn cả PRG và CHR bank.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper nay dung PRG bank 32KB va CHR bank 8KB.\n";
+    s += "CPU ghi vao $8000-$FFFF de chon ca PRG va CHR bank.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 32KB : %1\n").arg(prg32Count);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 32KB : " + std::to_string(prg32Count) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
 
     s += "\nTHANH GHI MAPPER:\n";
-    s += QString("PRG bank select   : %1\n").arg(prgBankSelect);
-    s += QString("CHR bank select   : %1\n").arg(chrBankSelect);
-    s += "Bit 4-5 của data  : chọn PRG bank 32KB\n";
-    s += "Bit 0-1 của data  : chọn CHR bank 8KB\n";
+    s += "PRG bank select   : " + std::to_string(prgBankSelect) + "\n";
+    s += "CHR bank select   : " + std::to_string(chrBankSelect) + "\n";
+    s += "Bit 4-5 cua data  : chon PRG bank 32KB\n";
+    s += "Bit 0-1 cua data  : chon CHR bank 8KB\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$FFFF : PRG bank 32KB = %1 | offset ROM = 0x%2\n")
-        .arg(prgBankSelect % prg32Count)
-        .arg((prgBankSelect % prg32Count) * 0x8000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$FFFF : PRG bank 32KB = " + std::to_string(prgBankSelect % prg32Count) +
+        " | offset ROM = 0x" + HexStr((prgBankSelect % prg32Count) * 0x8000, 6) + "\n";
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
     if (nCHRBanks == 0)
     {
         s += "$0000-$1FFF : CHR RAM 8KB\n";
     }
     else
     {
-        s += QString("$0000-$1FFF : CHR bank 8KB = %1 | offset CHR = 0x%2\n")
-            .arg(chrBankSelect % nCHRBanks)
-            .arg((chrBankSelect % nCHRBanks) * 0x2000, 6, 16, QChar('0'))
-            .toUpper();
+        s += "$0000-$1FFF : CHR bank 8KB = " + std::to_string(chrBankSelect % nCHRBanks) +
+            " | offset CHR = 0x" + HexStr((chrBankSelect % nCHRBanks) * 0x2000, 6) + "\n";
     }
 
-    s += "\nGHI CHÚ:\n";
-    s += "Offset PRG nhảy theo 0x8000 vì mỗi PRG bank là 32KB.\n";
-    s += "Offset CHR nhảy theo 0x2000 vì mỗi CHR bank là 8KB.\n";
+    s += "\nGHI CHU:\n";
+    s += "Offset PRG nhay theo 0x8000 vi moi PRG bank la 32KB.\n";
+    s += "Offset CHR nhay theo 0x2000 vi moi CHR bank la 8KB.\n";
 
     return s;
 }

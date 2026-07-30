@@ -636,12 +636,11 @@ void Mapper_005::WriteMMC5PulseRegister(int ch, uint16_t addr, uint8_t data)
     case 0x5006:
         p.timer = (p.timer & 0x0700) | data;
         break;
-
     case 0x5003:
     case 0x5007:
         p.timer = (p.timer & 0x00FF) | ((data & 0x07) << 8);
         p.sequence = 0;
-        p.counter = p.timer + 1;
+        p.counter = (p.timer + 1) * 2;
         break;
     }
 }
@@ -688,7 +687,7 @@ void Mapper_005::ClockAudio()
 
         if (p.counter == 0)
         {
-            p.counter = p.timer + 1;
+            p.counter = (p.timer + 1) * 2;
             p.sequence = (p.sequence + 1) & 0x07;
         }
         else
@@ -731,7 +730,7 @@ void Mapper_005::GetMMC5DebugPeriods(float& pulse1, float& pulse2) const
             return 0.0f;
 
         // MMC5 pulse dùng duty 8 bước, clock theo CPU cycle trong SJNES.
-        float samples = float(p.timer + 1) * 8.0f * CPU_TO_SAMPLE_LOCAL;
+        float samples = float(p.timer + 1) * 16.0f * CPU_TO_SAMPLE_LOCAL;
         if (samples < 2.0f) return 0.0f;
         if (samples > 8192.0f) return 8192.0f;
         return samples;
@@ -763,19 +762,19 @@ float Mapper_005::GetExpansionAudio()
     return (p1 * 0.12f) + (p2 * 0.12f) + (pcm * 0.10f);
 }
 
-QString Mapper_005::GetDebugInfo()
+std::string Mapper_005::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        case MIRROR::HARDWARE:     return "MMC5 nametable mapping phức tạp";
-        default:                   return "Không rõ";
+        case MIRROR::HARDWARE:     return "MMC5 nametable mapping phuc tap";
+        default:                   return "Khong ro";
         }
         };
 
@@ -784,58 +783,55 @@ QString Mapper_005::GetDebugInfo()
 
     s += "===== MAPPER 005 - MMC5 / EXROM =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "MMC5 là mapper nâng cao của Nintendo, có PRG/CHR banking nhiều mode, ExRAM, IRQ, multiplier và audio mở rộng.\n";
-    s += "Bản hiện tại là phase 1, chưa phải MMC5 full chính xác.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "MMC5 la mapper nang cao cua Nintendo, co PRG/CHR banking nhieu mode, ExRAM, IRQ, multiplier va audio mo rong.\n";
+    s += "Ban hien tai la phase 1, chua phai MMC5 full chinh xac.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 8KB  : %1\n").arg(prg8Count);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Số CHR banks 1KB  : %1\n").arg(chr1kCount);
-    s += QString("Mirroring gần đúng: %1\n").arg(mirrorToString(mirror()));
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 8KB  : " + std::to_string(prg8Count) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "So CHR banks 1KB  : " + std::to_string(chr1kCount) + "\n";
+    s += "Mirroring gan dung: " + mirrorToString(mirror()) + "\n";
 
     s += "\nTHANH GHI CONTROL:\n";
-    s += QString("$5100 PRG Mode     : %1\n").arg(prgMode);
-    s += QString("$5101 CHR Mode     : %1\n").arg(chrMode);
-    s += QString("$5104 ExRAM Mode   : %1\n").arg(exRamMode);
-    s += QString("$5105 NT Mapping   : 0x%1\n").arg(ntMapping, 2, 16, QChar('0')).toUpper();
-    s += QString("$5106 Fill Tile    : %1\n").arg(fillTile);
-    s += QString("$5107 Fill Attr    : %1\n").arg(fillAttr);
+    s += "$5100 PRG Mode     : " + std::to_string(prgMode) + "\n";
+    s += "$5101 CHR Mode     : " + std::to_string(chrMode) + "\n";
+    s += "$5104 ExRAM Mode   : " + std::to_string(exRamMode) + "\n";
+    s += "$5105 NT Mapping   : 0x" + HexStr(ntMapping, 2) + "\n";
+    s += "$5106 Fill Tile    : " + std::to_string(fillTile) + "\n";
+    s += "$5107 Fill Attr    : " + std::to_string(fillAttr) + "\n";
 
     s += "\nPRG REGISTERS:\n";
     for (int i = 0; i < 4; i++)
     {
-        s += QString("$511%1 = 0x%2 | bank=%3 | ROM/RAM bit=%4\n")
-            .arg(i + 4)
-            .arg(prgReg[i], 2, 16, QChar('0'))
-            .arg(prgReg[i] & 0x7F)
-            .arg((prgReg[i] & 0x80) ? "ROM" : "RAM")
-            .toUpper();
+        s += "$511" + std::to_string(i + 4) + " = 0x" + HexStr(prgReg[i], 2) +
+            " | bank=" + std::to_string(prgReg[i] & 0x7F) +
+            " | ROM/RAM bit=" + std::string((prgReg[i] & 0x80) ? "ROM" : "RAM") + "\n";
     }
 
     s += "\nCHR SPRITE REGISTERS $5120-$5127:\n";
     for (int i = 0; i < 8; i++)
     {
-        s += QString("CHR sprite[%1] = %2\n").arg(i).arg(chrSpriteReg[i]);
+        s += "CHR sprite[" + std::to_string(i) + "] = " + std::to_string(chrSpriteReg[i]) + "\n";
     }
 
     s += "\nCHR BG REGISTERS $5128-$512B:\n";
     for (int i = 0; i < 4; i++)
     {
-        s += QString("CHR bg[%1] = %2\n").arg(i).arg(chrBgReg[i]);
+        s += "CHR bg[" + std::to_string(i) + "] = " + std::to_string(chrBgReg[i]) + "\n";
     }
 
-    s += QString("CHR upper bits $5130: %1\n").arg(chrUpperBits);
+    s += "CHR upper bits $5130: " + std::to_string(chrUpperBits) + "\n";
 
     s += "\nIRQ / MULTIPLIER:\n";
-    s += QString("IRQ scanline : %1\n").arg(irqScanline);
-    s += QString("IRQ enable   : %1\n").arg(irqEnable ? "BẬT" : "TẮT");
-    s += QString("IRQ status   : 0x%1\n").arg(irqStatus, 2, 16, QChar('0')).toUpper();
-    s += QString("Multiplier   : %1 x %2 = %3\n").arg(mulA).arg(mulB).arg(mulResult);
+    s += "IRQ scanline : " + std::to_string(irqScanline) + "\n";
+    s += std::string("IRQ enable   : ") + (irqEnable ? "BAT" : "TAT") + "\n";
+    s += "IRQ status   : 0x" + HexStr(irqStatus, 2) + "\n";
+    s += "Multiplier   : " + std::to_string(mulA) + " x " + std::to_string(mulB) + " = " + std::to_string(mulResult) + "\n";
 
-    s += "\nGHI CHÚ:\n";
-    s += "MMC5 full cần sửa thêm PPU để phân biệt background/sprite CHR fetch, ExRAM nametable, fill mode, vertical split và IRQ scanline.\n";
-    s += "Bản này dùng để bắt đầu boot/test game Mapper 5 trước.\n";
+    s += "\nGHI CHU:\n";
+    s += "MMC5 full can sua them PPU de phan biet background/sprite CHR fetch, ExRAM nametable, fill mode, vertical split va IRQ scanline.\n";
+    s += "Ban nay dung de bat dau boot/test game Mapper 5 truoc.\n";
 
     return s;
 }

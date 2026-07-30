@@ -54,20 +54,20 @@ bool Mapper_003::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
 void Mapper_003::reset() {
     nCHRBankSelect = 0;
 }
-QString Mapper_003::GetDebugInfo()
+std::string Mapper_003::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
     s += "===== MAPPER 003 - CNROM =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper này không đổi bank PRG.\n";
-    s += "Mapper này chỉ đổi bank CHR 8KB cho PPU.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper nay khong doi bank PRG.\n";
+    s += "Mapper nay chi doi bank CHR 8KB cho PPU.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += "\nPRG BANK HIEN TAI:\n";
 
     if (nPRGBanks == 1)
     {
@@ -76,34 +76,31 @@ QString Mapper_003::GetDebugInfo()
     }
     else
     {
-        s += "$8000-$FFFF : PRG 32KB cố định\n";
+        s += "$8000-$FFFF : PRG 32KB co dinh\n";
         s += "$8000-$BFFF : PRG bank 0\n";
         s += "$C000-$FFFF : PRG bank 1\n";
     }
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
 
     if (nCHRBanks == 0)
     {
-        s += "$0000-$1FFF : không có CHR ROM / có thể là CHR RAM\n";
+        s += "$0000-$1FFF : khong co CHR ROM / co the la CHR RAM\n";
     }
     else
     {
-        s += QString("$0000-$1FFF : đang trỏ tới CHR bank 8KB số %1\n")
-            .arg(nCHRBankSelect);
+        s += "$0000-$1FFF : dang tro toi CHR bank 8KB so " + std::to_string(nCHRBankSelect) + "\n";
 
-        s += QString("Offset CHR ROM     : 0x%1\n")
-            .arg(nCHRBankSelect * 0x2000, 6, 16, QChar('0'))
-            .toUpper();
+        s += "Offset CHR ROM     : 0x" + HexStr(nCHRBankSelect * 0x2000, 6) + "\n";
     }
 
     s += "\nTHANH GHI MAPPER:\n";
-    s += QString("nCHRBankSelect     : %1\n").arg(nCHRBankSelect);
+    s += "nCHRBankSelect     : " + std::to_string(nCHRBankSelect) + "\n";
 
-    s += "\nGHI CHÚ:\n";
-    s += "CPU ghi vào vùng $8000-$FFFF để chọn bank CHR.\n";
-    s += "CNROM thường dùng 2 bit thấp của data để chọn tối đa 4 bank CHR.\n";
-    s += "PPU đọc $0000-$1FFF sẽ lấy dữ liệu từ CHR bank đang chọn.\n";
+    s += "\nGHI CHU:\n";
+    s += "CPU ghi vao vung $8000-$FFFF de chon bank CHR.\n";
+    s += "CNROM thuong dung 2 bit thap cua data de chon toi da 4 bank CHR.\n";
+    s += "PPU doc $0000-$1FFF se lay du lieu tu CHR bank dang chon.\n";
 
     return s;
 }

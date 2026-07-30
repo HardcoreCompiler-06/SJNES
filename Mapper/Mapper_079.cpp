@@ -1,5 +1,4 @@
 #include "Mapper_079.h"
-#include <QDebug>
 
 Mapper_079::Mapper_079(uint8_t prgBanks, uint8_t chrBanks)
     : Mapper(prgBanks, chrBanks)
@@ -77,14 +76,14 @@ bool Mapper_079::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr)
     return false;
 }
 
-QString Mapper_079::GetDebugInfo()
+std::string Mapper_079::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
     s += "===== MAPPER 079 DEBUG =====\n\n";
 
-    s += QString("PRG Bank: %1 / %2\n").arg(prg_bank).arg(nPRGBanks);
-    s += QString("CHR Bank: %1 / %2\n").arg(chr_bank).arg(nCHRBanks);
+    s += "PRG Bank: " + std::to_string(prg_bank) + " / " + std::to_string(nPRGBanks) + "\n";
+    s += "CHR Bank: " + std::to_string(chr_bank) + " / " + std::to_string(nCHRBanks) + "\n";
 
     s += "\nPRG Mapping:\n";
     s += "$8000-$FFFF -> 32KB PRG switchable\n";

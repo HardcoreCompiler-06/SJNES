@@ -20,13 +20,13 @@ public:
     bool irqState() override;
     void irqClear() override;
 
-    QString GetDebugInfo() override;
+    std::string GetDebugInfo() override;
 
     float GetExpansionAudio() override;
     void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) override;
     void GetS5BDebugPeriods(float& ch1, float& ch2, float& ch3) const;
     void GetS5BDebugDuty(float& ch1, float& ch2, float& ch3) const;
-
+    void GetExpansionAudioStereo(float& expL, float& expR) override;
     int GetMirrorMode() const { return mirrorMode; }
     bool IsPrg6000RamSelected() const { return prg6000RamSelected; }
     bool IsPrg6000RamEnabled() const { return prg6000RamEnabled; }

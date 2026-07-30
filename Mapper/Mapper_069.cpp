@@ -222,7 +222,6 @@ bool Mapper_069::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr)
 
 void Mapper_069::irqStep()
 {
-    // ===== Sunsoft 5B audio clock =====
     audioDivider++;
 
     if (audioDivider >= 16)
@@ -251,7 +250,6 @@ void Mapper_069::irqStep()
         }
     }
 
-    // Cập nhật sample output mỗi CPU cycle
     for (int ch = 0; ch < 3; ch++)
     {
         uint8_t mixer = audioRegs[7];
@@ -268,12 +266,11 @@ void Mapper_069::irqStep()
         {
             float amp = float(volume) / 15.0f;
 
-            // giảm bớt độ chói
             lastToneSample[ch] = toneOutput[ch] ? amp : -amp;
         }
     }
 
-    // ===== FME-7 IRQ =====
+   
     if (irqCounterEnabled)
     {
         uint16_t old = irqCounter;
@@ -298,22 +295,22 @@ void Mapper_069::irqClear()
 
 float Mapper_069::GetExpansionAudio()
 {
-    float mix = 0.0f;
-
-    mix += lastToneSample[0];
-    mix += lastToneSample[1];
-    mix += lastToneSample[2];
-
-    mix /= 3.0f;
-
-    // chỉnh volume 5B, nếu nhỏ quá tăng 0.35 lên 0.5
-    return mix * 0.13f;
+    float mix = lastToneSample[0] + lastToneSample[1] + lastToneSample[2];
+    return mix * 0.07f;
 }
+
 void Mapper_069::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
 {
     ch1 = lastToneSample[0];
     ch2 = lastToneSample[1];
     ch3 = lastToneSample[2];
+}
+
+void Mapper_069::GetExpansionAudioStereo(float& expL, float& expR)
+{
+    float mix = GetExpansionAudio();
+    expL = mix;
+    expR = mix;
 }
 
 void Mapper_069::GetS5BDebugPeriods(float& ch1, float& ch2, float& ch3) const
@@ -363,31 +360,31 @@ void Mapper_069::GetS5BDebugDuty(float& ch1, float& ch2, float& ch3) const
     ch3 = active(2);
 }
 
-QString Mapper_069::GetDebugInfo()
+std::string Mapper_069::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
     s += "===== Sunsoft FME-7 / 5B Mapper 69 =====\n";
-    s += QString("Command: %1\n").arg(command);
-    s += QString("Mirror Mode: %1\n\n").arg(mirrorMode);
+    s += "Command: " + std::to_string(command) + "\n";
+    s += "Mirror Mode: " + std::to_string(mirrorMode) + "\n\n";
 
     s += "CHR Banks 1KB:\n";
     for (int i = 0; i < 8; i++)
     {
-        s += QString("CHR[%1] = %2\n").arg(i).arg(chrBank[i]);
+        s += "CHR[" + std::to_string(i) + "] = " + std::to_string(chrBank[i]) + "\n";
     }
 
     s += "\nPRG Banks 8KB:\n";
-    s += QString("$6000: %1  (tạm chưa map trong Cartridge)\n").arg(prgBank[0]);
-    s += QString("$8000: %1\n").arg(prgBank[1]);
-    s += QString("$A000: %1\n").arg(prgBank[2]);
-    s += QString("$C000: %1\n").arg(prgBank[3]);
+    s += "$6000: " + std::to_string(prgBank[0]) + "  (tam chua map trong Cartridge)\n";
+    s += "$8000: " + std::to_string(prgBank[1]) + "\n";
+    s += "$A000: " + std::to_string(prgBank[2]) + "\n";
+    s += "$C000: " + std::to_string(prgBank[3]) + "\n";
     s += "$E000: fixed last\n\n";
 
-    s += QString("IRQ Enabled: %1\n").arg(irqEnabled);
-    s += QString("IRQ Counter Enabled: %1\n").arg(irqCounterEnabled);
-    s += QString("IRQ Pending: %1\n").arg(irqPending);
-    s += QString("IRQ Counter: %1\n").arg(irqCounter);
+    s += "IRQ Enabled: " + std::to_string(irqEnabled) + "\n";
+    s += "IRQ Counter Enabled: " + std::to_string(irqCounterEnabled) + "\n";
+    s += "IRQ Pending: " + std::to_string(irqPending) + "\n";
+    s += "IRQ Counter: " + std::to_string(irqCounter) + "\n";
 
     return s;
 }

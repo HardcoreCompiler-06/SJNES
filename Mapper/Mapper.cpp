@@ -1,6 +1,6 @@
 #include "Mapper.h"
 
-Mapper::Mapper(uint8_t prgBanks, uint8_t chrBanks) {
+Mapper::Mapper(uint32_t prgBanks, uint32_t chrBanks) {
     nPRGBanks = prgBanks;
     nCHRBanks = chrBanks;
 }

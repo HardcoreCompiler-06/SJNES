@@ -1,4 +1,5 @@
 #include "Mapper_024.h"
+#include <algorithm>
 Mapper_024::Mapper_024(uint8_t prgBanks, uint8_t chrBanks)
     : Mapper(prgBanks, chrBanks)
 {
@@ -39,14 +40,14 @@ void Mapper_024::UpdateB003(uint8_t data)
     prgRamEnable = (data & 0x80) != 0;
 
     auto SetNametable = [&](int index, uint8_t page)
-    {
-        ntSource[index & 0x03] = page & 0x01;
-    };
+        {
+            ntSource[index & 0x03] = page & 0x01;
+        };
 
     auto SetChrNametable = [&](int index, uint8_t page)
-    {
-        ntChrBank[index & 0x03] = page;
-    };
+        {
+            ntChrBank[index & 0x03] = page;
+        };
 
     if (useChrRomNametables)
     {
@@ -160,7 +161,7 @@ void Mapper_024::UpdateB003(uint8_t data)
             // This can be more complex than a simple MIRROR enum, but keeping the
             // closest common value helps older PPU code paths.
             mirrorMode = ((chrBank[6] & 1) == 0 && (chrBank[7] & 1) == 1) ? MIRROR::VERTICAL :
-                         ((chrBank[6] & 1) == 0 ? MIRROR::ONESCREEN_LO : MIRROR::ONESCREEN_HI);
+                ((chrBank[6] & 1) == 0 ? MIRROR::ONESCREEN_LO : MIRROR::ONESCREEN_HI);
             break;
 
         case 1:
@@ -418,17 +419,17 @@ void Mapper_024::irqStep()
         return;
 
     auto clockIRQCounter = [&]()
-    {
-        if (irqCounter == 0xFF)
         {
-            irqCounter = irqLatch;
-            irqActive = true;
-        }
-        else
-        {
-            irqCounter++;
-        }
-    };
+            if (irqCounter == 0xFF)
+            {
+                irqCounter = irqLatch;
+                irqActive = true;
+            }
+            else
+            {
+                irqCounter++;
+            }
+        };
 
     if (irqModeCycle)
     {
@@ -510,7 +511,7 @@ void Mapper_024::WriteSaw(uint16_t reg, uint8_t data)
             saw.prev_output = 0.0f;
             saw.step = 0;
             saw.accumulator = 0;
-            saw.phase = 0.0f; 
+            saw.phase = 0.0f;
         }
         break;
     }
@@ -558,7 +559,37 @@ void Mapper_024::ClockVRC6Audio()
         saw.filtered_output = 0.0f;
         saw.phase = 0.0f;
         saw.timer = saw.period;
+        saw.debugTimer = saw.period;
+        saw.debugSubstepPeriod = saw.period;
+        saw.debugStep = 0;
+        saw.debugCyclePeak = 0.0f;
         return;
+    }
+
+    // Snap debugCyclePeak ngay khi note VỪA bật lại (step==0, timer chưa tick lần nào).
+    if (saw.debugStep == 0 && saw.debugTimer == saw.period)
+    {
+        saw.debugCyclePeak = std::clamp(static_cast<float>(saw.rate) * 7.0f / 8.0f, 0.0f, 31.0f);
+    }
+
+    // Bộ đếm riêng cho oscilloscope, LUÔN tick song song bất kể smoothSawEnabled,
+    // không đụng gì tới audio thật (saw.output/saw.timer/saw.step ở dưới).
+    if (saw.debugTimer == 0)
+    {
+        saw.debugTimer = saw.period;
+        saw.debugSubstepPeriod = saw.period; 
+        if (saw.debugStep == 13) // sắp wrap về 0 ở bước tăng ngay dưới
+        {
+            saw.debugCyclePeak = std::clamp(static_cast<float>(saw.rate) * 7.0f / 8.0f, 0.0f, 31.0f);
+        }
+
+        saw.debugStep++;
+        if (saw.debugStep >= 14)
+            saw.debugStep = 0;
+    }
+    else
+    {
+        saw.debugTimer--;
     }
 
     if (smoothSawEnabled)
@@ -610,11 +641,11 @@ float Mapper_024::GetExpansionAudio()
 {
     if (muteVRC6) return 0.0f;
 
-    float p1 = pulse1.output * 15.0f;
-    float p2 = pulse2.output * 15.0f;
-    constexpr float sawGain = 2.0f;
+    float p1 = pulse1.output * 20.0f;
+    float p2 = pulse2.output * 20.0f;
+    constexpr float sawGain = 1.8f;
     float s = saw.GetCleanOutput(smoothSawEnabled) * 31.0f * sawGain;
-    float vrc6_mix = (p1 + p2 + s) / (30.0f + 31.0f * sawGain);
+    float vrc6_mix = (p1 + p2 + s) / (40.0f + 31.0f * sawGain);
     return vrc6_mix;
 }
 
@@ -627,15 +658,15 @@ void Mapper_024::GetExpansionAudioStereo(float& left, float& right)
         return;
     }
 
-    float p1 = pulse1.output * 15.0f;
-    float p2 = pulse2.output * 15.0f;
-    constexpr float sawGain = 1.6f;
+    float p1 = pulse1.output * 20.0f;
+    float p2 = pulse2.output * 20.0f;
+    constexpr float sawGain = 1.8f;
     float s = saw.GetCleanOutput(smoothSawEnabled) * 31.0f * sawGain;
 
     float mixL = (p1 * 0.60f) + (p2 * 0.40f) + (s * 0.50f);
     float mixR = (p1 * 0.40f) + (p2 * 0.60f) + (s * 0.50f);
 
-    const float stereoNorm = 15.0f + 15.5f * sawGain;
+    const float stereoNorm = 20.0f + 20.0f * sawGain;
     left = mixL / stereoNorm;
     right = mixR / stereoNorm;
 }
@@ -648,10 +679,19 @@ void Mapper_024::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
         ch3 = 0.0f;
         return;
     }
-
     ch1 = pulse1.output;
     ch2 = pulse2.output;
-    ch3 = saw.output;
+    if (smoothSawEnabled && saw.enable && saw.period >= 8)
+    {
+        float frac = static_cast<float>(saw.debugSubstepPeriod - saw.debugTimer) / static_cast<float>(saw.debugSubstepPeriod + 1);
+        frac = std::clamp(frac, 0.0f, 1.0f);
+        float rampProgress = (static_cast<float>(saw.debugStep) + frac) / 14.0f;
+        ch3 = std::clamp(rampProgress * (saw.debugCyclePeak / 31.0f), 0.0f, 1.0f);
+    }
+    else
+    {
+        ch3 = saw.output;
+    }
 }
 
 void Mapper_024::GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const
@@ -688,24 +728,24 @@ void Mapper_024::GetVRC6DebugDuty(float& ch1, float& ch2) const
             return 15.0f;
 
         return float(p.duty & 0x07);
-    };
+        };
 
     ch1 = calc(pulse1);
     ch2 = calc(pulse2);
 }
 
-QString Mapper_024::GetDebugInfo()
+std::string Mapper_024::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Không rõ";
+        default:                   return "Khong ro";
         }
         };
 
@@ -714,103 +754,88 @@ QString Mapper_024::GetDebugInfo()
 
     s += "===== MAPPER 024 - KONAMI VRC6 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 8KB  : %1\n").arg(prg8Count);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Số CHR banks 1KB  : %1\n").arg(chr1kCount);
-    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrorMode));
+    s += "THONG TIN CHUNG:\n";
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 8KB  : " + std::to_string(prg8Count) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "So CHR banks 1KB  : " + std::to_string(chr1kCount) + "\n";
+    s += "Mirroring         : " + mirrorToString(mirrorMode) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$BFFF : PRG bank 16KB = %1 | offset ROM = 0x%2\n")
-        .arg(prg16Bank)
-        .arg((prg16Bank % nPRGBanks) * 0x4000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$BFFF : PRG bank 16KB = " + std::to_string(prg16Bank) +
+        " | offset ROM = 0x" + HexStr((prg16Bank % nPRGBanks) * 0x4000, 6) + "\n";
 
-    s += QString("$C000-$DFFF : PRG bank 8KB  = %1 | offset ROM = 0x%2\n")
-        .arg(prg8Bank)
-        .arg((prg8Bank % prg8Count) * 0x2000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$C000-$DFFF : PRG bank 8KB  = " + std::to_string(prg8Bank) +
+        " | offset ROM = 0x" + HexStr((prg8Bank % prg8Count) * 0x2000, 6) + "\n";
 
-    s += QString("$E000-$FFFF : PRG bank 8KB cuối = %1 | offset ROM = 0x%2\n")
-        .arg(prg8Count - 1)
-        .arg((prg8Count - 1) * 0x2000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$E000-$FFFF : PRG bank 8KB cuoi = " + std::to_string(prg8Count - 1) +
+        " | offset ROM = 0x" + HexStr((prg8Count - 1) * 0x2000, 6) + "\n";
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
     for (int i = 0; i < 8; i++)
     {
         uint16_t addr = i * 0x0400;
         uint8_t reg = GetChrRegisterForPpuAddress(addr);
         uint8_t realBank = GetChrBankForPpuAddress(addr);
 
-        s += QString("$%1-$%2 : dùng CHR[%3]=%4 | bank thực=%5 | offset CHR=0x%6\n")
-            .arg(addr, 4, 16, QChar('0'))
-            .arg(addr + 0x03FF, 4, 16, QChar('0'))
-            .arg(reg)
-            .arg(chrBank[reg])
-            .arg(realBank)
-            .arg((realBank % chr1kCount) * 0x0400, 6, 16, QChar('0'))
-            .toUpper();
+        s += "$" + HexStr(addr, 4) + "-$" + HexStr(addr + 0x03FF, 4) +
+            " : dung CHR[" + std::to_string(reg) + "]=" + std::to_string(chrBank[reg]) +
+            " | bank thuc=" + std::to_string(realBank) +
+            " | offset CHR=0x" + HexStr((realBank % chr1kCount) * 0x0400, 6) + "\n";
     }
 
     s += "\nNAMETABLE / MIRRORING:\n";
-    s += QString("Thanh ghi $B003             : 0x%1\n").arg(b003, 2, 16, QChar('0')).toUpper();
-    s += QString("PPU Banking Mode            : %1\n").arg(ppuBankingMode);
-    s += QString("Nametable dùng CHR-ROM      : %1\n").arg(useChrRomNametables ? "BẬT" : "TẮT");
-    s += QString("Điều khiển CHR A10          : %1\n").arg(chrA10Control ? "BẬT" : "TẮT");
-    s += QString("PRG RAM                     : %1\n").arg(prgRamEnable ? "BẬT" : "TẮT");
+    s += "Thanh ghi $B003             : 0x" + HexStr(b003, 2) + "\n";
+    s += "PPU Banking Mode            : " + std::to_string(ppuBankingMode) + "\n";
+    s += std::string("Nametable dung CHR-ROM      : ") + (useChrRomNametables ? "BAT" : "TAT") + "\n";
+    s += std::string("Dieu khien CHR A10          : ") + (chrA10Control ? "BAT" : "TAT") + "\n";
+    s += std::string("PRG RAM                     : ") + (prgRamEnable ? "BAT" : "TAT") + "\n";
 
-    s += "\nNguồn Nametable:\n";
+    s += "\nNguon Nametable:\n";
     for (int i = 0; i < 4; i++)
     {
-        s += QString("Nametable %1 : CIRAM source=%2 | CHR-NT bank=%3\n")
-            .arg(i)
-            .arg(ntSource[i])
-            .arg(ntChrBank[i]);
+        s += "Nametable " + std::to_string(i) + " : CIRAM source=" + std::to_string(ntSource[i]) +
+            " | CHR-NT bank=" + std::to_string(ntChrBank[i]) + "\n";
     }
 
-    s += "\nTHÔNG TIN IRQ:\n";
-    s += QString("IRQ Enable           : %1\n").arg(irqEnable ? "BẬT" : "TẮT");
-    s += QString("IRQ Enable After ACK : %1\n").arg(irqEnableAfterAck ? "CÓ" : "KHÔNG");
-    s += QString("IRQ Active           : %1\n").arg(irqActive ? "CÓ" : "KHÔNG");
-    s += QString("IRQ Mode             : %1\n").arg(irqModeCycle ? "CPU Cycle" : "Scanline");
-    s += QString("IRQ Latch            : %1\n").arg(irqLatch);
-    s += QString("IRQ Counter          : %1\n").arg(irqCounter);
-    s += QString("IRQ Prescaler        : %1\n").arg(irqPrescaler);
+    s += "\nTHONG TIN IRQ:\n";
+    s += std::string("IRQ Enable           : ") + (irqEnable ? "BAT" : "TAT") + "\n";
+    s += std::string("IRQ Enable After ACK : ") + (irqEnableAfterAck ? "CO" : "KHONG") + "\n";
+    s += std::string("IRQ Active           : ") + (irqActive ? "CO" : "KHONG") + "\n";
+    s += std::string("IRQ Mode             : ") + (irqModeCycle ? "CPU Cycle" : "Scanline") + "\n";
+    s += "IRQ Latch            : " + std::to_string(irqLatch) + "\n";
+    s += "IRQ Counter          : " + std::to_string(irqCounter) + "\n";
+    s += "IRQ Prescaler        : " + std::to_string(irqPrescaler) + "\n";
 
-    s += "\nÂM THANH MỞ RỘNG VRC6:\n";
-    s += QString("Mute VRC6 : %1\n").arg(muteVRC6 ? "CÓ" : "KHÔNG");
+    s += "\nAM THANH MO RONG VRC6:\n";
+    s += std::string("Mute VRC6 : ") + (muteVRC6 ? "CO" : "KHONG") + "\n";
 
     s += "\nVRC6 Pulse 1:\n";
-    s += QString("Enable=%1 | Volume=%2 | Duty=%3 | Mode=%4 | Period=%5 | Timer=%6 | Output=%7\n")
-        .arg(pulse1.enable ? "BẬT" : "TẮT")
-        .arg(pulse1.volume)
-        .arg(pulse1.duty)
-        .arg(pulse1.mode ? "Constant" : "Duty")
-        .arg(pulse1.period)
-        .arg(pulse1.timer)
-        .arg(pulse1.output);
+    s += std::string("Enable=") + (pulse1.enable ? "BAT" : "TAT") +
+        " | Volume=" + std::to_string(pulse1.volume) +
+        " | Duty=" + std::to_string(pulse1.duty) +
+        " | Mode=" + (pulse1.mode ? "Constant" : "Duty") +
+        " | Period=" + std::to_string(pulse1.period) +
+        " | Timer=" + std::to_string(pulse1.timer) +
+        " | Output=" + std::to_string(pulse1.output) + "\n";
 
     s += "\nVRC6 Pulse 2:\n";
-    s += QString("Enable=%1 | Volume=%2 | Duty=%3 | Mode=%4 | Period=%5 | Timer=%6 | Output=%7\n")
-        .arg(pulse2.enable ? "BẬT" : "TẮT")
-        .arg(pulse2.volume)
-        .arg(pulse2.duty)
-        .arg(pulse2.mode ? "Constant" : "Duty")
-        .arg(pulse2.period)
-        .arg(pulse2.timer)
-        .arg(pulse2.output);
+    s += std::string("Enable=") + (pulse2.enable ? "BAT" : "TAT") +
+        " | Volume=" + std::to_string(pulse2.volume) +
+        " | Duty=" + std::to_string(pulse2.duty) +
+        " | Mode=" + (pulse2.mode ? "Constant" : "Duty") +
+        " | Period=" + std::to_string(pulse2.period) +
+        " | Timer=" + std::to_string(pulse2.timer) +
+        " | Output=" + std::to_string(pulse2.output) + "\n";
 
     s += "\nVRC6 Saw:\n";
-    s += QString("Enable=%1 | Rate=%2 | Period=%3 | Timer=%4 | Step=%5 | Acc=%6 | Output=%7\n")
-        .arg(saw.enable ? "BẬT" : "TẮT")
-        .arg(saw.rate)
-        .arg(saw.period)
-        .arg(saw.timer)
-        .arg(saw.step)
-        .arg(saw.accumulator)
-        .arg(saw.output);
+    s += std::string("Enable=") + (saw.enable ? "BAT" : "TAT") +
+        " | Rate=" + std::to_string(saw.rate) +
+        " | Period=" + std::to_string(saw.period) +
+        " | Timer=" + std::to_string(saw.timer) +
+        " | Step=" + std::to_string(saw.step) +
+        " | Acc=" + std::to_string(saw.accumulator) +
+        " | Output=" + std::to_string(saw.output) + "\n";
 
     return s;
 }

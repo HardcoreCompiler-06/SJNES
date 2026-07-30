@@ -106,18 +106,18 @@ bool Mapper_009::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     return false;
 }
 
-QString Mapper_009::GetDebugInfo()
+std::string Mapper_009::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Hardware / Không rõ";
+        default:                   return "Hardware / Khong ro";
         }
         };
 
@@ -133,73 +133,59 @@ QString Mapper_009::GetDebugInfo()
 
     s += "===== MAPPER 009 - MMC2 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper MMC2 dùng CHR latch đặc biệt.\n";
-    s += "Khi PPU đọc tile ở vùng $0FD8/$0FE8/$1FD8/$1FE8, latch sẽ đổi bank CHR.\n";
-    s += "Mapper này nổi tiếng với Punch-Out!!.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper MMC2 dung CHR latch dac biet.\n";
+    s += "Khi PPU doc tile o vung $0FD8/$0FE8/$1FD8/$1FE8, latch se doi bank CHR.\n";
+    s += "Mapper nay noi tieng voi Punch-Out!!.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 8KB  : %1\n").arg(prg8Count);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Số CHR banks 4KB  : %1\n").arg(nCHRBanks * 2);
-    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirromode));
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 8KB  : " + std::to_string(prg8Count) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "So CHR banks 4KB  : " + std::to_string(nCHRBanks * 2) + "\n";
+    s += "Mirroring         : " + mirrorToString(mirromode) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$9FFF : PRG bank 8KB %1 | offset ROM = 0x%2\n")
-        .arg(nPRGBank)
-        .arg(prg8000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$9FFF : PRG bank 8KB " + std::to_string(nPRGBank) +
+        " | offset ROM = 0x" + HexStr(prg8000, 6) + "\n";
 
-    s += QString("$A000-$BFFF : PRG bank 8KB %1 | offset ROM = 0x%2 | cố định\n")
-        .arg(prg8Count - 3)
-        .arg(prgA000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$A000-$BFFF : PRG bank 8KB " + std::to_string(prg8Count - 3) +
+        " | offset ROM = 0x" + HexStr(prgA000, 6) + " | co dinh\n";
 
-    s += QString("$C000-$DFFF : PRG bank 8KB %1 | offset ROM = 0x%2 | cố định\n")
-        .arg(prg8Count - 2)
-        .arg(prgC000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$C000-$DFFF : PRG bank 8KB " + std::to_string(prg8Count - 2) +
+        " | offset ROM = 0x" + HexStr(prgC000, 6) + " | co dinh\n";
 
-    s += QString("$E000-$FFFF : PRG bank 8KB %1 | offset ROM = 0x%2 | cố định\n")
-        .arg(prg8Count - 1)
-        .arg(prgE000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$E000-$FFFF : PRG bank 8KB " + std::to_string(prg8Count - 1) +
+        " | offset ROM = 0x" + HexStr(prgE000, 6) + " | co dinh\n";
 
-    s += "\nCHR LATCH HIỆN TẠI:\n";
-    s += QString("Latch 0 cho vùng PPU $0000-$0FFF : %1 (%2)\n")
-        .arg(nLatch0)
-        .arg(nLatch0 == 0 ? "FD8" : "FE8");
+    s += "\nCHR LATCH HIEN TAI:\n";
+    s += "Latch 0 cho vung PPU $0000-$0FFF : " + std::to_string(nLatch0) +
+        " (" + (nLatch0 == 0 ? "FD8" : "FE8") + ")\n";
 
-    s += QString("Latch 1 cho vùng PPU $1000-$1FFF : %1 (%2)\n")
-        .arg(nLatch1)
-        .arg(nLatch1 == 0 ? "FD8" : "FE8");
+    s += "Latch 1 cho vung PPU $1000-$1FFF : " + std::to_string(nLatch1) +
+        " (" + (nLatch1 == 0 ? "FD8" : "FE8") + ")\n";
 
     s += "\nTHANH GHI CHR BANK:\n";
-    s += QString("CHR Bank 0 FD8 : %1\n").arg(nCHRBank0_FD8);
-    s += QString("CHR Bank 0 FE8 : %1\n").arg(nCHRBank0_FE8);
-    s += QString("CHR Bank 1 FD8 : %1\n").arg(nCHRBank1_FD8);
-    s += QString("CHR Bank 1 FE8 : %1\n").arg(nCHRBank1_FE8);
+    s += "CHR Bank 0 FD8 : " + std::to_string(nCHRBank0_FD8) + "\n";
+    s += "CHR Bank 0 FE8 : " + std::to_string(nCHRBank0_FE8) + "\n";
+    s += "CHR Bank 1 FD8 : " + std::to_string(nCHRBank1_FD8) + "\n";
+    s += "CHR Bank 1 FE8 : " + std::to_string(nCHRBank1_FE8) + "\n";
 
-    s += "\nCHR BANK ĐANG ĐƯỢC DÙNG:\n";
-    s += QString("$0000-$0FFF : CHR bank 4KB %1 | offset CHR = 0x%2\n")
-        .arg(activeChr0)
-        .arg(activeChr0 * 0x1000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nCHR BANK DANG DUOC DUNG:\n";
+    s += "$0000-$0FFF : CHR bank 4KB " + std::to_string(activeChr0) +
+        " | offset CHR = 0x" + HexStr(activeChr0 * 0x1000, 6) + "\n";
 
-    s += QString("$1000-$1FFF : CHR bank 4KB %1 | offset CHR = 0x%2\n")
-        .arg(activeChr1)
-        .arg(activeChr1 * 0x1000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "$1000-$1FFF : CHR bank 4KB " + std::to_string(activeChr1) +
+        " | offset CHR = 0x" + HexStr(activeChr1 * 0x1000, 6) + "\n";
 
-    s += "\nCÁC ĐỊA CHỈ LATCH:\n";
-    s += "$0FD8 : đổi Latch 0 sang FD8\n";
-    s += "$0FE8 : đổi Latch 0 sang FE8\n";
-    s += "$1FD8 : đổi Latch 1 sang FD8\n";
-    s += "$1FE8 : đổi Latch 1 sang FE8\n";
+    s += "\nCAC DIA CHI LATCH:\n";
+    s += "$0FD8 : doi Latch 0 sang FD8\n";
+    s += "$0FE8 : doi Latch 0 sang FE8\n";
+    s += "$1FD8 : doi Latch 1 sang FD8\n";
+    s += "$1FE8 : doi Latch 1 sang FE8\n";
 
-    s += "\nGHI CHÚ:\n";
-    s += "MMC2 không chỉ đổi CHR bằng CPU write, mà còn tự đổi theo địa chỉ PPU đọc.\n";
-    s += "Vì vậy khi game vẽ sprite/background đặc biệt, latch có thể nhảy rất nhanh.\n";
+    s += "\nGHI CHU:\n";
+    s += "MMC2 khong chi doi CHR bang CPU write, ma con tu doi theo dia chi PPU doc.\n";
+    s += "Vi vay khi game ve sprite/background dac biet, latch co the nhay rat nhanh.\n";
 
     return s;
 }

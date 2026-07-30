@@ -53,24 +53,24 @@ bool Mapper_087::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
     // Băng TwinBee dùng ROM (Read-Only Memory) cho đồ họa, tuyệt đối không cho ghi đè
     return false;
 }
-QString Mapper_087::GetDebugInfo()
+std::string Mapper_087::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
     s += "===== MAPPER 087 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper này cố định PRG 32KB tại $8000-$FFFF.\n";
-    s += "CHR bank được chọn bằng ghi vào $6000-$7FFF.\n";
-    s += "Dữ liệu ghi bị đảo bit 0 và bit 1 để ra bank CHR.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper nay co dinh PRG 32KB tai $8000-$FFFF.\n";
+    s += "CHR bank duoc chon bang ghi vao $6000-$7FFF.\n";
+    s += "Du lieu ghi bi dao bit 0 va bit 1 de ra bank CHR.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
 
     s += "\nPRG MAPPING:\n";
     if (nPRGBanks > 1)
     {
-        s += "$8000-$FFFF : PRG 32KB cố định | offset ROM = 0x000000\n";
+        s += "$8000-$FFFF : PRG 32KB co dinh | offset ROM = 0x000000\n";
         s += "$8000-$BFFF : PRG bank 0\n";
         s += "$C000-$FFFF : PRG bank 1\n";
     }
@@ -80,18 +80,16 @@ QString Mapper_087::GetDebugInfo()
         s += "$C000-$FFFF : mirror PRG bank 0\n";
     }
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
-    s += QString("$0000-$1FFF : CHR bank 8KB = %1 | offset CHR = 0x%2\n")
-        .arg(chrBankSelect)
-        .arg(chrBankSelect * 0x2000, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nCHR BANK HIEN TAI:\n";
+    s += "$0000-$1FFF : CHR bank 8KB = " + std::to_string(chrBankSelect) +
+        " | offset CHR = 0x" + HexStr(chrBankSelect * 0x2000, 6) + "\n";
 
     s += "\nTHANH GHI MAPPER:\n";
-    s += QString("chrBankSelect : %1\n").arg(chrBankSelect);
+    s += "chrBankSelect : " + std::to_string(chrBankSelect) + "\n";
 
-    s += "\nGHI CHÚ:\n";
-    s += "Khi CPU ghi data vào $6000-$7FFF:\n";
-    s += "bit0 được chuyển thành bit1, bit1 được chuyển thành bit0.\n";
+    s += "\nGHI CHU:\n";
+    s += "Khi CPU ghi data vao $6000-$7FFF:\n";
+    s += "bit0 duoc chuyen thanh bit1, bit1 duoc chuyen thanh bit0.\n";
 
     return s;
 }

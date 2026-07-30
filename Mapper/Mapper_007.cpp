@@ -98,18 +98,18 @@ MIRROR Mapper_007::mirror()
     return mapper_mirror;
 }
 
-QString Mapper_007::GetDebugInfo()
+std::string Mapper_007::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        default:                   return "Hardware / Không rõ";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        default:                   return "Hardware / Khong ro";
         }
         };
 
@@ -122,43 +122,40 @@ QString Mapper_007::GetDebugInfo()
 
     s += "===== MAPPER 007 - AXROM =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += "Mapper này đổi PRG theo bank 32KB.\n";
-    s += "AxROM thường dùng CHR RAM 8KB.\n";
-    s += "Mirroring là one-screen, chọn bằng bit 4 khi CPU ghi vào mapper.\n\n";
+    s += "THONG TIN CHUNG:\n";
+    s += "Mapper nay doi PRG theo bank 32KB.\n";
+    s += "AxROM thuong dung CHR RAM 8KB.\n";
+    s += "Mirroring la one-screen, chon bang bit 4 khi CPU ghi vao mapper.\n\n";
 
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 32KB : %1\n").arg(prg32Banks);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 32KB : " + std::to_string(prg32Banks) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
-    s += QString("$8000-$FFFF : đang trỏ tới PRG bank 32KB số %1\n")
-        .arg(currentBank);
-    s += QString("Offset ROM  : 0x%1\n")
-        .arg(prgOffset, 6, 16, QChar('0'))
-        .toUpper();
+    s += "\nPRG BANK HIEN TAI:\n";
+    s += "$8000-$FFFF : dang tro toi PRG bank 32KB so " + std::to_string(currentBank) + "\n";
+    s += "Offset ROM  : 0x" + HexStr(prgOffset, 6) + "\n";
 
     s += "\nCHR:\n";
     if (nCHRBanks == 0)
     {
-        s += "$0000-$1FFF : CHR RAM 8KB, cho phép PPU ghi\n";
+        s += "$0000-$1FFF : CHR RAM 8KB, cho phep PPU ghi\n";
     }
     else
     {
-        s += "$0000-$1FFF : CHR ROM 8KB đầu, map thẳng\n";
+        s += "$0000-$1FFF : CHR ROM 8KB dau, map thang\n";
     }
 
     s += "\nMIRRORING:\n";
-    s += QString("Kiểu mirroring hiện tại : %1\n").arg(mirrorToString(mapper_mirror));
+    s += "Kieu mirroring hien tai : " + mirrorToString(mapper_mirror) + "\n";
 
     s += "\nTHANH GHI MAPPER:\n";
-    s += QString("nPRGBankSelect : %1\n").arg(nPRGBankSelect);
-    s += "Bit 0-2: chọn PRG bank 32KB\n";
-    s += "Bit 4  : chọn one-screen mirroring thấp/cao\n";
+    s += "nPRGBankSelect : " + std::to_string(nPRGBankSelect) + "\n";
+    s += "Bit 0-2: chon PRG bank 32KB\n";
+    s += "Bit 4  : chon one-screen mirroring thap/cao\n";
 
-    s += "\nGHI CHÚ:\n";
-    s += "Offset ROM nhảy theo 0x8000 vì mỗi bank PRG của AxROM là 32KB.\n";
-    s += "Một số game AxROM dùng mirroring một màn hình để đổi trang nametable.\n";
+    s += "\nGHI CHU:\n";
+    s += "Offset ROM nhay theo 0x8000 vi moi bank PRG cua AxROM la 32KB.\n";
+    s += "Mot so game AxROM dung mirroring mot man hinh de doi trang nametable.\n";
 
     return s;
 }

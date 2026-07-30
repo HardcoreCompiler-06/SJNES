@@ -104,31 +104,31 @@ bool Mapper_023::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
 MIRROR Mapper_023::mirror() {
     return mirrormode;
 }
-QString Mapper_023::GetDebugInfo()
+std::string Mapper_023::GetDebugInfo()
 {
-    QString s;
+    std::string s;
 
-    auto mirrorToString = [](MIRROR m) -> QString {
+    auto mirrorToString = [](MIRROR m) -> std::string {
         switch (m)
         {
         case MIRROR::HORIZONTAL:   return "Horizontal / Ngang";
-        case MIRROR::VERTICAL:     return "Vertical / Dọc";
-        case MIRROR::ONESCREEN_LO: return "One-screen thấp";
+        case MIRROR::VERTICAL:     return "Vertical / Doc";
+        case MIRROR::ONESCREEN_LO: return "One-screen thap";
         case MIRROR::ONESCREEN_HI: return "One-screen cao";
-        default:                   return "Không rõ";
+        default:                   return "Khong ro";
         }
         };
 
     s += "===== MAPPER 023 - VRC4 =====\n\n";
 
-    s += "THÔNG TIN CHUNG:\n";
-    s += QString("Số PRG banks 16KB : %1\n").arg(nPRGBanks);
-    s += QString("Số PRG banks 8KB  : %1\n").arg(nPRGBanks * 2);
-    s += QString("Số CHR banks 8KB  : %1\n").arg(nCHRBanks);
-    s += QString("Số CHR banks 1KB  : %1\n").arg(nCHRBanks == 0 ? 8 : nCHRBanks * 8);
-    s += QString("Mirroring         : %1\n").arg(mirrorToString(mirrormode));
+    s += "THONG TIN CHUNG:\n";
+    s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
+    s += "So PRG banks 8KB  : " + std::to_string(nPRGBanks * 2) + "\n";
+    s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
+    s += "So CHR banks 1KB  : " + std::to_string(nCHRBanks == 0 ? 8 : nCHRBanks * 8) + "\n";
+    s += "Mirroring         : " + mirrorToString(mirrormode) + "\n";
 
-    s += "\nPRG BANK HIỆN TẠI:\n";
+    s += "\nPRG BANK HIEN TAI:\n";
     const char* prgRange[4] = {
         "$8000-$9FFF",
         "$A000-$BFFF",
@@ -138,33 +138,27 @@ QString Mapper_023::GetDebugInfo()
 
     for (int i = 0; i < 4; i++)
     {
-        s += QString("%1 : offset ROM = 0x%2 | PRG bank 8KB = %3\n")
-            .arg(prgRange[i])
-            .arg(pPRGBank[i], 6, 16, QChar('0'))
-            .arg(pPRGBank[i] / 0x2000)
-            .toUpper();
+        s += std::string(prgRange[i]) + " : offset ROM = 0x" + HexStr(pPRGBank[i], 6) +
+            " | PRG bank 8KB = " + std::to_string(pPRGBank[i] / 0x2000) + "\n";
     }
 
-    s += "\nCHR BANK HIỆN TẠI:\n";
+    s += "\nCHR BANK HIEN TAI:\n";
     for (int i = 0; i < 8; i++)
     {
         uint8_t fullBank = (nCHRBank_Hi[i] << 4) | nCHRBank_Lo[i];
         uint16_t start = i * 0x0400;
 
-        s += QString("$%1-$%2 : Lo=%3 Hi=%4 Full=%5 | offset CHR=0x%6 | CHR bank 1KB=%7\n")
-            .arg(start, 4, 16, QChar('0'))
-            .arg(start + 0x03FF, 4, 16, QChar('0'))
-            .arg(nCHRBank_Lo[i])
-            .arg(nCHRBank_Hi[i])
-            .arg(fullBank)
-            .arg(pCHRBank[i], 6, 16, QChar('0'))
-            .arg(pCHRBank[i] / 0x0400)
-            .toUpper();
+        s += "$" + HexStr(start, 4) + "-$" + HexStr(start + 0x03FF, 4) +
+            " : Lo=" + std::to_string(nCHRBank_Lo[i]) +
+            " Hi=" + std::to_string(nCHRBank_Hi[i]) +
+            " Full=" + std::to_string(fullBank) +
+            " | offset CHR=0x" + HexStr(pCHRBank[i], 6) +
+            " | CHR bank 1KB=" + std::to_string(pCHRBank[i] / 0x0400) + "\n";
     }
 
-    s += "\nGHI CHÚ:\n";
-    s += "Mapper 023 là VRC4. CHR bank được ghép từ 2 mảnh 4-bit Lo/Hi.\n";
-    s += "PRG bank $C000-$FFFF thường cố định ở hai bank cuối.\n";
+    s += "\nGHI CHU:\n";
+    s += "Mapper 023 la VRC4. CHR bank duoc ghep tu 2 manh 4-bit Lo/Hi.\n";
+    s += "PRG bank $C000-$FFFF thuong co dinh o hai bank cuoi.\n";
 
     return s;
 }
