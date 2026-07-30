@@ -18,11 +18,7 @@ public:
         cpuCycleCounter = 0;
         currentChannel = 7;
         heldOutput = 0;
-
-        volume = 0.35f;
-
-        // true  = giữ kiểu phần cứng thật, có tiếng rít khi nhiều kênh
-        // false = trộn sạch hơn, nghe dễ chịu hơn
+        volume = 2.00f;
         accurateMultiplex = false;
     }
     void GetDebugChannels(float out[8]) const

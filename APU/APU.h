@@ -7,6 +7,7 @@
 #include "DMC.h"
 #include "Noise.h"
 #include "Mapper_024.h"
+#include <QMetaType>
 struct AudioDebugChannels {
     float pulse1 = 0.0f;
     float pulse2 = 0.0f;
@@ -42,9 +43,6 @@ struct AudioDebugChannels {
     float n163Wave7 = 0.0f;
     float n163Wave8 = 0.0f;
 
-
-    // Period hint tính theo đơn vị: số audio sample / 1 chu kỳ sóng.
-    // Dùng cho AudioWaveWindow để khóa pha theo timer thật, tránh trôi ngang.
     float pulse1Period = 0.0f;
     float pulse2Period = 0.0f;
     float trianglePeriod = 0.0f;
@@ -66,9 +64,6 @@ struct AudioDebugChannels {
     float vrc7Wave5Period = 0.0f;
     float vrc7Wave6Period = 0.0f;
 
-    // VRC7 carrier phase hint, lấy từ emu2413 pg_phase của carrier slot.
-    // 0.0..1.0 là một vòng phase; AudioWaveWindow dùng để neo VRC7 theo chip thật,
-    // không bắt zero-crossing từ waveform nữa.
     float vrc7Wave1Phase = 0.0f;
     float vrc7Wave2Phase = 0.0f;
     float vrc7Wave3Phase = 0.0f;
@@ -88,12 +83,8 @@ struct AudioDebugChannels {
     float n163Period7 = 0.0f;
     float n163Period8 = 0.0f;
 
-    // Chip-shape hint: dùng để AudioWaveWindow vẽ sóng vuông/tam giác bám sát timer+duty thật,
-    // không bắt nhầm cạnh waveform lúc note vừa nổi lên.
-    // Pulse duty dùng raw code 0..3 theo duty table NES; -1 = không hợp lệ/tắt.
     float pulse1Duty = -1.0f;
     float pulse2Duty = -1.0f;
-    // Triangle phase raw 0..31; hiện dùng để tham khảo/debug, renderer vẽ theo shape chuẩn 32 bước.
     float trianglePhase = -1.0f;
 
     float vrc6Pulse1Duty = -1.0f;
@@ -106,6 +97,7 @@ struct AudioDebugChannels {
     float mmc5Pulse1Duty = -1.0f;
     float mmc5Pulse2Duty = -1.0f;
 };
+Q_DECLARE_METATYPE(AudioDebugChannels)
 class Bus;
 
 class APU {
@@ -124,6 +116,12 @@ public:
     void    Step();
     float   GetOutputSample();
     void    GetOutputSampleStereo(float& left, float& right);
+    // Áp filter chain thật (2 highpass + 1 lowpass, giả lập mạch NES) lên TỔNG
+    // đã cộng cả NES 5 kênh + expansion audio (VRC6/S5B/VRC7/MMC5/N163).
+    // Gọi hàm này SAU KHI cộng expansion vào, KHÔNG gọi trước, vì trên phần cứng
+    // thật expansion audio hòa vào cùng đường tín hiệu analog trước khi qua filter.
+    void    ApplyOutputFilterStereo(float& left, float& right);
+    float   ApplyOutputFilterMono(float sample);
     bool mutePulse1 = false;
     bool mutePulse2 = false;
     bool muteTriangle = false;
@@ -131,18 +129,14 @@ public:
     bool muteDMC = false;
     bool smoothSawEnabled = false;
     void SetSmoothSaw(bool enable);
+    // Bật/tắt "Reverse DPCM Bit Order" — bù cho ROM encode sample DMC sai thứ tự bit
+    // (Double Dribble, Gimmick!, một số famiclone...). Mặc định tắt.
+    void SetReverseDpcmBits(bool enable) { dmc.reverseBits = enable; }
+    bool GetReverseDpcmBits() const { return dmc.reverseBits; }
     Mapper* mapper = nullptr;
     void SetSmoothTriangle(bool smooth) { tri.smooth = smooth; }
     bool GetSmoothTriangle() const { return tri.smooth; }
-    uint8_t readStatus() {
-        uint8_t s = 0;
-        if (f1.length_counter > 0) s |= 0x01;
-        if (f2.length_counter > 0) s |= 0x02;
-        if (tri.length_counter > 0) s |= 0x04;
-        if (noise.length_counter > 0) s |= 0x08;
-        if (dmc.bytes_remaining > 0) s |= 0x10;
-        return s;
-    }
+    uint8_t readStatus();
 
 private:
     F1       f1;
@@ -151,17 +145,16 @@ private:
     DMC      dmc;
     Noise    noise;
 
-    // Frame Sequencer
     int  frame_seq_count = 0;
     bool use_5step_mode = false;
     bool apu_half_clock = false;
+    bool frame_irq_flag = false;  
+    bool irq_inhibit = false;    
 
-    // Filters - mono
     float hp1 = 0.0f, prev_in1 = 0.0f;
     float hp2 = 0.0f, prev_in2 = 0.0f;
     float lp = 0.0f;
 
-    // Filters - stereo (L = F1+tri+noise+dmc, R = F2+tri+noise+dmc)
     float hp1L = 0.0f, prev_in1L = 0.0f;
     float hp2L = 0.0f, prev_in2L = 0.0f;
     float lpL = 0.0f;
