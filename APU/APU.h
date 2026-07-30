@@ -130,7 +130,7 @@ public:
     bool smoothSawEnabled = false;
     void SetSmoothSaw(bool enable);
     // Bật/tắt "Reverse DPCM Bit Order" — bù cho ROM encode sample DMC sai thứ tự bit
-    // (Double Dribble, Gimmick!, một số famiclone...). Mặc định tắt.
+    // (Double Dribble, Gimmick!, một số famiclone...). 
     void SetReverseDpcmBits(bool enable) { dmc.reverseBits = enable; }
     bool GetReverseDpcmBits() const { return dmc.reverseBits; }
     Mapper* mapper = nullptr;
