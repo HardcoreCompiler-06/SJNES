@@ -1,10 +1,8 @@
 #pragma once
 #include <cstdint>
 #include <memory>
-#include <QImage>
-#include <QColor>
 #include "Cartridge.h"
-#include <QDataStream>
+#include "BinaryIO.h"
 class PPU {
 public:
     PPU();
@@ -18,7 +16,9 @@ public:
     void Step(); // Chạy 1 chu kỳ PPU
     uint8_t getPPUMask() { return ppu_mask; }
     uint8_t getPPUCtrl() { return ppu_ctrl; }
-    QColor palScreen[0x40];
+    struct RGBColor { uint8_t r, g, b; };
+    RGBColor palScreen[0x40];
+    RGBColor GetNESColor(uint8_t index) const;
     // GIAO TIẾP VỚI CPU (Đọc/Ghi các thanh ghi $2000 - $2007)
     uint8_t cpuRead(uint16_t addr, bool rdonly = false);
     void cpuWrite(uint16_t addr, uint8_t data);
@@ -28,20 +28,22 @@ public:
     void ppuWrite(uint16_t addr, uint8_t data);
 
     // XUẤT HÌNH ẢNH RA QT CỦA ANH
-    QImage GetScreen();
+    const uint32_t* GetScreenBuffer() const;
 
     // HÀM PHỤ TRỢ CHO DEBUG / SPRITE VIEWER
     uint8_t DebugPPURead(uint16_t addr);
     uint8_t GetOAMByte(uint8_t index) const;
     uint8_t GetPPUCtrl() const;
-    QColor GetNESColor(uint8_t index) const;
+    
 
     // CÁC BIẾN TRẠNG THÁI QUAN TRỌNG ĐỂ BUS.CPP VÀ UI GỌI
     bool nmi_requested = false;
     uint8_t oam_addr = 0x00; 
     uint8_t OAM[256];
-    void SaveState(QDataStream& out) const;
-    void LoadState(QDataStream& in);
+    void SaveState(BinaryWriter& out) const;
+    void LoadState(BinaryReader& in);
+
+    uint8_t GetPaletteRAM(uint8_t index) const { return tblPalette[index & 0x1F]; }
 private:
     bool bRemoveSpriteLimit = false;
     int sprite_count = 0;

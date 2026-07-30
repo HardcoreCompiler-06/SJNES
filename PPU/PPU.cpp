@@ -1,78 +1,79 @@
 #include "PPU.h"
+#include <qDebug>
 #include "Mapper_004.h"
 #include "Mapper_005.h"
 #include "Mapper_024.h"
-// ==============================================================================
+#include "Mapper_476.h"
+#include "BinaryIO.h"
 // KHỞI TẠO PPU & BẢNG MÀU
-// ==============================================================================
 PPU::PPU() {
-    palScreen[0x00] = QColor(102, 102, 102);
-    palScreen[0x01] = QColor(0, 42, 136);
-    palScreen[0x02] = QColor(20, 18, 167);
-    palScreen[0x03] = QColor(59, 0, 164);
-    palScreen[0x04] = QColor(92, 0, 126);
-    palScreen[0x05] = QColor(110, 0, 64);
-    palScreen[0x06] = QColor(108, 6, 0);
-    palScreen[0x07] = QColor(86, 29, 0);
-    palScreen[0x08] = QColor(51, 53, 0);
-    palScreen[0x09] = QColor(11, 72, 0);
-    palScreen[0x0A] = QColor(0, 82, 0);
-    palScreen[0x0B] = QColor(0, 79, 8);
-    palScreen[0x0C] = QColor(0, 64, 77);
-    palScreen[0x0D] = QColor(0, 0, 0);
-    palScreen[0x0E] = QColor(0, 0, 0);
-    palScreen[0x0F] = QColor(0, 0, 0);
+    palScreen[0x00] = { (uint8_t)102, (uint8_t)102, (uint8_t)102 };
+    palScreen[0x01] = { (uint8_t)0, (uint8_t)42, (uint8_t)136 };
+    palScreen[0x02] = { (uint8_t)20, (uint8_t)18, (uint8_t)167 };
+    palScreen[0x03] = { (uint8_t)59, (uint8_t)0, (uint8_t)164 };
+    palScreen[0x04] = { (uint8_t)92, (uint8_t)0, (uint8_t)126 };
+    palScreen[0x05] = { (uint8_t)110, (uint8_t)0, (uint8_t)64 };
+    palScreen[0x06] = { (uint8_t)108, (uint8_t)6, (uint8_t)0 };
+    palScreen[0x07] = { (uint8_t)86, (uint8_t)29, (uint8_t)0 };
+    palScreen[0x08] = { (uint8_t)51, (uint8_t)53, (uint8_t)0 };
+    palScreen[0x09] = { (uint8_t)11, (uint8_t)72, (uint8_t)0 };
+    palScreen[0x0A] = { (uint8_t)0, (uint8_t)82, (uint8_t)0 };
+    palScreen[0x0B] = { (uint8_t)0, (uint8_t)79, (uint8_t)8 };
+    palScreen[0x0C] = { (uint8_t)0, (uint8_t)64, (uint8_t)77 };
+    palScreen[0x0D] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
+    palScreen[0x0E] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
+    palScreen[0x0F] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
 
-    palScreen[0x10] = QColor(173, 173, 173);
-    palScreen[0x11] = QColor(21, 95, 217);
-    palScreen[0x12] = QColor(66, 64, 255);
-    palScreen[0x13] = QColor(117, 39, 254);
-    palScreen[0x14] = QColor(160, 26, 204);
-    palScreen[0x15] = QColor(183, 30, 123);
-    palScreen[0x16] = QColor(181, 49, 32);
-    palScreen[0x17] = QColor(153, 78, 0);
-    palScreen[0x18] = QColor(107, 109, 0);
-    palScreen[0x19] = QColor(56, 135, 0);
-    palScreen[0x1A] = QColor(12, 147, 0);
-    palScreen[0x1B] = QColor(0, 143, 50);
-    palScreen[0x1C] = QColor(0, 124, 141);
-    palScreen[0x1D] = QColor(0, 0, 0);
-    palScreen[0x1E] = QColor(0, 0, 0);
-    palScreen[0x1F] = QColor(0, 0, 0);
+    palScreen[0x10] = { (uint8_t)173, (uint8_t)173, (uint8_t)173 };
+    palScreen[0x11] = { (uint8_t)21, (uint8_t)95, (uint8_t)217 };
+    palScreen[0x12] = { (uint8_t)66, (uint8_t)64, (uint8_t)255 };
+    palScreen[0x13] = { (uint8_t)117, (uint8_t)39, (uint8_t)254 };
+    palScreen[0x14] = { (uint8_t)160, (uint8_t)26, (uint8_t)204 };
+    palScreen[0x15] = { (uint8_t)183, (uint8_t)30, (uint8_t)123 };
+    palScreen[0x16] = { (uint8_t)181, (uint8_t)49, (uint8_t)32 };
+    palScreen[0x17] = { (uint8_t)153, (uint8_t)78, (uint8_t)0 };
+    palScreen[0x18] = { (uint8_t)107, (uint8_t)109, (uint8_t)0 };
+    palScreen[0x19] = { (uint8_t)56, (uint8_t)135, (uint8_t)0 };
+    palScreen[0x1A] = { (uint8_t)12, (uint8_t)147, (uint8_t)0 };
+    palScreen[0x1B] = { (uint8_t)0, (uint8_t)143, (uint8_t)50 };
+    palScreen[0x1C] = { (uint8_t)0, (uint8_t)124, (uint8_t)141 };
+    palScreen[0x1D] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
+    palScreen[0x1E] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
+    palScreen[0x1F] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
 
-    palScreen[0x20] = QColor(255, 254, 255);
-    palScreen[0x21] = QColor(100, 176, 255);
-    palScreen[0x22] = QColor(146, 144, 255);
-    palScreen[0x23] = QColor(198, 118, 255);
-    palScreen[0x24] = QColor(243, 106, 255);
-    palScreen[0x25] = QColor(254, 110, 204);
-    palScreen[0x26] = QColor(254, 129, 112);
-    palScreen[0x27] = QColor(234, 158, 34);
-    palScreen[0x28] = QColor(188, 190, 0);
-    palScreen[0x29] = QColor(136, 216, 0);
-    palScreen[0x2A] = QColor(92, 228, 48);
-    palScreen[0x2B] = QColor(69, 224, 130);
-    palScreen[0x2C] = QColor(72, 205, 222);
-    palScreen[0x2D] = QColor(79, 79, 79);
-    palScreen[0x2E] = QColor(0, 0, 0);
-    palScreen[0x2F] = QColor(0, 0, 0);
+    palScreen[0x20] = { (uint8_t)255, (uint8_t)254, (uint8_t)255 };
+    palScreen[0x21] = { (uint8_t)100, (uint8_t)176, (uint8_t)255 };
+    palScreen[0x22] = { (uint8_t)146, (uint8_t)144, (uint8_t)255 };
+    palScreen[0x23] = { (uint8_t)198, (uint8_t)118, (uint8_t)255 };
+    palScreen[0x24] = { (uint8_t)243, (uint8_t)106, (uint8_t)255 };
+    palScreen[0x25] = { (uint8_t)254, (uint8_t)110, (uint8_t)204 };
+    palScreen[0x26] = { (uint8_t)254, (uint8_t)129, (uint8_t)112 };
+    palScreen[0x27] = { (uint8_t)234, (uint8_t)158, (uint8_t)34 };
+    palScreen[0x28] = { (uint8_t)188, (uint8_t)190, (uint8_t)0 };
+    palScreen[0x29] = { (uint8_t)136, (uint8_t)216, (uint8_t)0 };
+    palScreen[0x2A] = { (uint8_t)92, (uint8_t)228, (uint8_t)48 };
+    palScreen[0x2B] = { (uint8_t)69, (uint8_t)224, (uint8_t)130 };
+    palScreen[0x2C] = { (uint8_t)72, (uint8_t)205, (uint8_t)222 };
+    palScreen[0x2D] = { (uint8_t)79, (uint8_t)79, (uint8_t)79 };
+    palScreen[0x2E] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
+    palScreen[0x2F] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
 
-    palScreen[0x30] = QColor(255, 254, 255);
-    palScreen[0x31] = QColor(192, 223, 255);
-    palScreen[0x32] = QColor(211, 210, 255);
-    palScreen[0x33] = QColor(232, 200, 255);
-    palScreen[0x34] = QColor(251, 194, 255);
-    palScreen[0x35] = QColor(254, 196, 234);
-    palScreen[0x36] = QColor(254, 204, 197);
-    palScreen[0x37] = QColor(247, 216, 165);
-    palScreen[0x38] = QColor(228, 229, 148);
-    palScreen[0x39] = QColor(207, 239, 150);
-    palScreen[0x3A] = QColor(189, 244, 171);
-    palScreen[0x3B] = QColor(179, 243, 204);
-    palScreen[0x3C] = QColor(181, 235, 242);
-    palScreen[0x3D] = QColor(184, 184, 184);
-    palScreen[0x3E] = QColor(0, 0, 0);
-    palScreen[0x3F] = QColor(0, 0, 0);
+    palScreen[0x30] = { (uint8_t)255, (uint8_t)254, (uint8_t)255 };
+    palScreen[0x31] = { (uint8_t)192, (uint8_t)223, (uint8_t)255 };
+    palScreen[0x32] = { (uint8_t)211, (uint8_t)210, (uint8_t)255 };
+    palScreen[0x33] = { (uint8_t)232, (uint8_t)200, (uint8_t)255 };
+    palScreen[0x34] = { (uint8_t)251, (uint8_t)194, (uint8_t)255 };
+    palScreen[0x35] = { (uint8_t)254, (uint8_t)196, (uint8_t)234 };
+    palScreen[0x36] = { (uint8_t)254, (uint8_t)204, (uint8_t)197 };
+    palScreen[0x37] = { (uint8_t)247, (uint8_t)216, (uint8_t)165 };
+    palScreen[0x38] = { (uint8_t)228, (uint8_t)229, (uint8_t)148 };
+    palScreen[0x39] = { (uint8_t)207, (uint8_t)239, (uint8_t)150 };
+    palScreen[0x3A] = { (uint8_t)189, (uint8_t)244, (uint8_t)171 };
+    palScreen[0x3B] = { (uint8_t)179, (uint8_t)243, (uint8_t)204 };
+    palScreen[0x3C] = { (uint8_t)181, (uint8_t)235, (uint8_t)242 };
+    palScreen[0x3D] = { (uint8_t)184, (uint8_t)184, (uint8_t)184 };
+    palScreen[0x3E] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
+    palScreen[0x3F] = { (uint8_t)0, (uint8_t)0, (uint8_t)0 };
 }
 
 PPU::~PPU() {}
@@ -133,13 +134,13 @@ void PPU::reset() {
         sprite_zero_being_rendered[i] = false;
     }
 
-    for (int i = 0; i < 256 * 240; i++)
-        frame_pixels[i] = palScreen[0x0F].rgb();
+    for (int i = 0; i < 256 * 240; i++) {
+        RGBColor c = palScreen[0x0F];
+        frame_pixels[i] = 0xFF000000 | (c.r << 16) | (c.g << 8) | c.b;
+    }
 }
 
-// ==============================================================================
 // GIAO TIẾP VỚI CPU
-// ==============================================================================
 uint8_t PPU::cpuRead(uint16_t addr, bool rdonly) {
     uint8_t data = 0x00;
     if (rdonly) {
@@ -169,13 +170,10 @@ uint8_t PPU::cpuRead(uint16_t addr, bool rdonly) {
         case 0x0007:
         {
             uint16_t addr = vram_addr.reg & 0x3FFF;
-
+            NotifyMapperA12(addr);
             if (addr >= 0x3F00)
             {
-                // Palette read không bị delay
                 data = ppuRead(addr);
-
-                // Nhưng buffer vẫn được cập nhật từ nametable mirror bên dưới
                 ppu_data_buffer = ppuRead(addr - 0x1000);
             }
             else
@@ -215,7 +213,17 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
         }
     }
     break;
-    case 0x0001: ppu_mask = data; break;
+    case 0x0001:
+    {
+        static uint8_t lastMask = 0xFF;
+        if (data != lastMask)
+        {
+            lastMask = data;
+            // (đã tắt log PPUMASK CHANGE, không cần nữa)
+        }
+    }
+    ppu_mask = data;
+    break;
     case 0x0002: break;
     case 0x0003: oam_addr = data; break;
     case 0x0004: OAM[oam_addr] = data; oam_addr++; break;
@@ -245,15 +253,18 @@ void PPU::cpuWrite(uint16_t addr, uint8_t data) {
             tram_addr.reg = (tram_addr.reg & 0xFF00) | data;
             vram_addr = tram_addr;
             address_latch = 0;
-
             NotifyMapperA12(vram_addr.reg);
         }
     }
     break;
     case 0x0007:
+    {
+        NotifyMapperA12(vram_addr.reg & 0x3FFF);
+
         ppuWrite(vram_addr.reg, data);
         vram_addr.reg += (ppu_ctrl & 0x04) ? 32 : 1;
-        break;
+    }
+    break;
     }
 }
 
@@ -271,10 +282,6 @@ uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
         uint16_t ntAddr = addr & 0x0FFF;
         int ntIndex = ntAddr / 0x0400;
         uint16_t offset = ntAddr & 0x03FF;
-
-        // =========================
-        // MMC5 nametable mapping
-        // =========================
         if (cart && cart->pMapper)
         {
             if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
@@ -305,9 +312,7 @@ uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
                 }
             }
         }
-        // =========================
         // VRC6 nametable banking
-        // =========================
         if (cart && cart->pMapper)
         {
             if (auto* vrc6 = dynamic_cast<Mapper_024*>(cart->pMapper.get()))
@@ -317,9 +322,20 @@ uint8_t PPU::ppuRead(uint16_t addr, bool rdonly) {
                 return data;
             }
         }
-        // =========================
+        if (cart && cart->pMapper)
+        {
+            if (auto* m476 = dynamic_cast<Mapper_476*>(cart->pMapper.get()))
+            {
+                static int logCount = 0;
+                if (logCount < 5) {
+                    qDebug() << "PPU dang doc nametable tu Mapper476, offset=" << offset;
+                    logCount++;
+                }
+                data = m476->ReadFrameNametable(offset);
+                return data;
+            }
+        }
         // Mirroring cũ cho mapper thường
-        // =========================
         addr = ntAddr;
         MIRROR m = cart->mirror;
         if (cart->pMapper != nullptr) {
@@ -373,9 +389,7 @@ void PPU::ppuWrite(uint16_t addr, uint8_t data) {
         int ntIndex = ntAddr / 0x0400;
         uint16_t offset = ntAddr & 0x03FF;
 
-        // =========================
         // MMC5 nametable mapping
-        // =========================
         if (cart && cart->pMapper)
         {
             if (auto* mmc5 = dynamic_cast<Mapper_005*>(cart->pMapper.get()))
@@ -403,9 +417,7 @@ void PPU::ppuWrite(uint16_t addr, uint8_t data) {
                 }
             }
         }
-        // =========================
         // VRC6 nametable banking
-        // =========================
         if (cart && cart->pMapper)
         {
             if (auto* vrc6 = dynamic_cast<Mapper_024*>(cart->pMapper.get()))
@@ -415,9 +427,7 @@ void PPU::ppuWrite(uint16_t addr, uint8_t data) {
                 return;
             }
         }
-        // =========================
         // Mirroring cũ cho mapper thường
-        // =========================
         addr = ntAddr;
         MIRROR m = cart->mirror;
         if (cart->pMapper != nullptr) {
@@ -469,7 +479,7 @@ void PPU::UpdateShifters() {
     }
 }
 
-//PHẦN CHÍNH CỦA CARD ĐỒ HỌA
+//PHẦN CHÍNH
 void PPU::Step() {
     if (!mapper_a12 && mapper_a12_low_cycles < 255)
     {
@@ -773,7 +783,10 @@ void PPU::Step() {
         if (ppu_mask & 0x01)
             pal_idx &= 0x30;
 
-        frame_pixels[scanline * 256 + (cycle - 1)] = palScreen[pal_idx].rgb();
+        {
+            RGBColor c = palScreen[pal_idx];
+            frame_pixels[scanline * 256 + (cycle - 1)] = 0xFF000000 | (c.r << 16) | (c.g << 8) | c.b;
+        }
     }
 
     if (scanline == 241 && cycle == 1) {
@@ -792,8 +805,8 @@ void PPU::Step() {
 
 }
 
-QImage PPU::GetScreen() {
-    return QImage((const uchar*)frame_pixels, 256, 240, QImage::Format_RGB32);
+const uint32_t* PPU::GetScreenBuffer() const {
+    return frame_pixels;
 }
 void PPU::NotifyMapperA12(uint16_t addr)
 {
@@ -829,8 +842,7 @@ uint8_t PPU::GetPPUCtrl() const
     return ppu_ctrl;
 }
 
-QColor PPU::GetNESColor(uint8_t index) const
-{
+PPU::RGBColor PPU::GetNESColor(uint8_t index) const {
     return palScreen[index & 0x3F];
 }
 uint8_t PPU::DebugPPURead(uint16_t addr)
@@ -909,7 +921,7 @@ int PPU::GetExtraScanlinesBeforeNMI() const
 {
     return extraScanlinesBeforeNMI;
 }
-void PPU::SaveState(QDataStream& out) const
+void PPU::SaveState(BinaryWriter& out) const
 {
     out << nmi_requested;
     out << oam_addr;
@@ -964,7 +976,7 @@ void PPU::SaveState(QDataStream& out) const
     }
 }
 
-void PPU::LoadState(QDataStream& in)
+void PPU::LoadState(BinaryReader& in)
 {
     in >> nmi_requested;
     in >> oam_addr;
