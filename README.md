@@ -1,10 +1,6 @@
 # SJNES
 
 <p align="center">
-  <img src="images/avatar.jpg" alt="Chiến - SJNES Developer" width="160"/>
-</p>
-
-<p align="center">
   <b>My first project: NES Emulator</b><br>
   Developed by <b>Chiến</b>
 </p>
@@ -26,6 +22,7 @@ The goal of SJNES is not only to run NES games, but also to help me understand l
 - Qt-based graphical user interface.
 - Basic actions such as reset, pause, and fast forward.
 - Audio debug tools and waveform display.
+- Per-channel oscilloscope for NES and expansion audio (VRC6, VRC7, N163, FDS, MMC5, Sunsoft 5B).
 - Channel mute options for testing audio.
 
 ## Main Components
@@ -71,15 +68,23 @@ SJNES uses Qt for the graphical interface. The interface includes ROM loading, r
 
 This is my first project, a NES emulator created for learning, research, and software development practice.
 
-## Special Thanks
+## Acknowledgements
 
-Special thanks to:
+SJNES was written for learning. I studied the resources and emulators below to
+understand how the NES works. The core skeleton (CPU, PPU, bus, cartridge and mapper base classes) follows
+javidx9's olcNES (OLC-3 license) and was then heavily extended by me. A few other
+parts (the FDS mapper, FDS disk loading, and the CPU interrupt timing model) are ported from Mesen, which is
+licensed under GPL-3.0. Those places are marked in the source comments.
 
-- OLC Javidx9 / OneLoneCoder
-- SourMesen
-- NESDev community
+- [OneLoneCoder / javidx9](https://github.com/OneLoneCoder/olcNES) – NES emulator tutorial series
+- [Mesen (SourMesen)](https://github.com/SourMesen/Mesen2) – reference for accurate NES behavior
+- [NESdev Wiki and community](https://www.nesdev.org/wiki/Nesdev_Wiki) – hardware documentation
+- [Corrscope](https://github.com/corrscope/corrscope) – inspiration for the correlation-based
+  oscilloscope triggering used for some audio channels
 
-Their resources and emulator references helped me understand NES emulation better.
+emu2413 https://github.com/digital-sound-antiques/emu2413 for VRC7 audio expansion
+
+miniz https://github.com/richgel999/miniz
 
 ## Project Status
 
@@ -95,6 +100,20 @@ SJNES is still in development. Some games can run, but accuracy may depend on th
 - Improve debug tools.
 - Add controller support.
 - Add CRT shader or visual effects.
+
+## License
+
+Copyright (C) Chiến
+
+Third-party code and its licenses (olc6502 under OLC-3, Mesen under GPL-3.0) are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+SJNES is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3
+of the License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+SJNES is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 ## Conclusion
 
