@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_019.h"
 #include "Namco163Audio.h"
 
@@ -35,7 +53,7 @@ void Mapper_019::reset()
 
     n163.Reset();
     n163.SetVolume(0.35f);
-    n163.SetAccurateMultiplex(false);  
+    n163.SetAccurateMultiplex(accurateAudioDefault);
 }
 
 bool Mapper_019::cpuReadRegister(uint16_t addr, uint8_t& data)
@@ -43,6 +61,20 @@ bool Mapper_019::cpuReadRegister(uint16_t addr, uint8_t& data)
     if (addr >= 0x4800 && addr <= 0x4FFF)
     {
         data = n163.ReadDataPort();
+        return true;
+    }
+
+    // $5000-$57FF: đọc byte thấp của bộ đếm IRQ
+    if (addr >= 0x5000 && addr <= 0x57FF)
+    {
+        data = uint8_t(irq_counter & 0xFF);
+        return true;
+    }
+
+    // $5800-$5FFF: byte cao (bit 0-6) + cờ enable (bit 7)
+    if (addr >= 0x5800 && addr <= 0x5FFF)
+    {
+        data = uint8_t(((irq_counter >> 8) & 0x7F) | (irq_enable ? 0x80 : 0x00));
         return true;
     }
 
@@ -119,6 +151,10 @@ bool Mapper_019::cpuMapWrite(uint16_t addr, uint32_t& mapped, uint8_t data)
         if (slot >= 0 && slot < 12)
         {
             chr[slot] = data;
+
+            // Ghi bank nametable -> cập nhật lại mirroring cho PPU
+            if (slot >= 8)
+                UpdateNametableMirror();
         }
 
         return true;
@@ -367,6 +403,20 @@ float Mapper_019::GetExpansionAudio()
     return n163.GetSample();
 }
 
+void Mapper_019::SetChannelGain(const QString& channelId, float gain)
+{
+    // channelId dạng "n163.ch1".."n163.ch8" -> viewIndex 0..7
+    if (!channelId.startsWith("n163.ch"))
+        return;
+
+    bool ok = false;
+    int chNumber = channelId.mid(7).toInt(&ok); // "n163.ch" dài 7 ký tự
+    if (!ok || chNumber < 1 || chNumber > 8)
+        return;
+
+    n163.SetChannelGain(chNumber - 1, gain);
+}
+
 void Mapper_019::irqStep()
 {
     // IRQ Mapper 19
@@ -382,6 +432,24 @@ void Mapper_019::GetN163DebugChannels(
 {
     float out[8]{};
     n163.GetDebugChannels(out);
+
+    ch1 = out[0];
+    ch2 = out[1];
+    ch3 = out[2];
+    ch4 = out[3];
+    ch5 = out[4];
+    ch6 = out[5];
+    ch7 = out[6];
+    ch8 = out[7];
+}
+
+void Mapper_019::GetN163DebugPhases(
+    float& ch1, float& ch2, float& ch3, float& ch4,
+    float& ch5, float& ch6, float& ch7, float& ch8
+)
+{
+    float out[8]{};
+    n163.GetDebugPhases(out);
 
     ch1 = out[0];
     ch2 = out[1];

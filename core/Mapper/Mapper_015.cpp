@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_015.h"
 
 Mapper_015::Mapper_015(uint8_t prgBanks, uint8_t chrBanks)
@@ -50,10 +68,8 @@ bool Mapper_015::cpuMapRead(uint16_t addr, uint32_t& mapped_addr)
         // UNROM-like:
         // $8000-$BFFF = bank chọn
         // $C000-$FFFF = bank cố định theo OR 7
-        if (addr < 0xC000)
-            bank = bank;
-        else
-            bank = bank | 0x07;
+        if (addr >= 0xC000)
+            bank |= 0x07;
 
         mapped_addr = Map16K(bank, addr);
         return true;
@@ -112,7 +128,6 @@ bool Mapper_015::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr)
 {
     if (addr < 0x2000)
     {
-        // Với ROM hack như Bio Hazard/Resident Evil, cứ cho ghi CHR-RAM
         mapped_addr = addr & 0x1FFF;
         return true;
     }

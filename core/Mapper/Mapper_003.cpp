@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_003.h"
 
 Mapper_003::Mapper_003(uint8_t prgBanks, uint8_t chrBanks)
@@ -26,7 +44,7 @@ bool Mapper_003::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
     if (addr >= 0x8000 && addr <= 0xFFFF) {
         // CHÌA KHÓA CỦA MAPPER 3: Ghi vào CPU để đổi cuộn băng hình (CHR)
         // Thường CNROM chỉ dùng 2 bit cuối của data để chọn 4 bank CHR (0-3)
-        nCHRBankSelect = data & 0x03;
+        nCHRBankSelect = data & 0x0F;
         if (nCHRBanks > 0) {
             nCHRBankSelect %= nCHRBanks;
         }

@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_024.h"
 #include <algorithm>
 Mapper_024::Mapper_024(uint8_t prgBanks, uint8_t chrBanks)
@@ -29,6 +47,8 @@ void Mapper_024::reset()
     pulse1 = VRC6Pulse{};
     pulse2 = VRC6Pulse{};
     saw = VRC6Saw{};
+    haltAllVRC6 = false;
+    vrc6FreqShift = 0;
 }
 
 void Mapper_024::UpdateB003(uint8_t data)
@@ -277,6 +297,8 @@ bool Mapper_024::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
         return false;
 
     case 0x9003:
+        haltAllVRC6 = (data & 0x01) != 0;
+        vrc6FreqShift = (data & 0x04) ? 8 : (data & 0x02) ? 4 : 0;
         return false;
 
     case 0xA000:
@@ -519,22 +541,32 @@ void Mapper_024::WriteSaw(uint16_t reg, uint8_t data)
 
 void Mapper_024::ClockVRC6Audio()
 {
-    auto clockPulse = [](VRC6Pulse& p)
+    // $9003 bit0: halt mọi oscillator, giữ nguyên trạng thái hiện tại (không tick).
+    if (haltAllVRC6)
+        return;
+
+    // Chú ý: KHÔNG có luật "mute khi period < 8" trong tài liệu VRC6 — đó là luật
+    // riêng của pulse APU 2A03. Trên VRC6, divider vẫn chạy kể cả khi kênh tắt
+    // (E=0); E=0 chỉ ép output = 0, không dừng divider hay reset period.
+    auto clockPulse = [this](VRC6Pulse& p)
         {
-            if (!p.enable || p.period < 8)
-            {
-                p.output = 0.0f;
-                return;
-            }
+            // Tần số hiệu dụng = period >> vrc6FreqShift (thanh ghi $9003).
+            const uint16_t period = static_cast<uint16_t>(p.period >> vrc6FreqShift);
 
             if (p.timer == 0)
             {
-                p.timer = p.period;
+                p.timer = period;
                 p.dutyPos = (p.dutyPos + 1) & 0x0F;
             }
             else
             {
                 p.timer--;
+            }
+
+            if (!p.enable)
+            {
+                p.output = 0.0f;
+                return;
             }
 
             if (p.mode)
@@ -552,24 +584,15 @@ void Mapper_024::ClockVRC6Audio()
     clockPulse(pulse1);
     clockPulse(pulse2);
 
-    if (!saw.enable || saw.period < 8)
-    {
-        saw.output = 0.0f;
-        saw.prev_output = 0.0f;
-        saw.filtered_output = 0.0f;
-        saw.phase = 0.0f;
-        saw.timer = saw.period;
-        saw.debugTimer = saw.period;
-        saw.debugSubstepPeriod = saw.period;
-        saw.debugStep = 0;
-        saw.debugCyclePeak = 0.0f;
-        return;
-    }
+    // Tần số hiệu dụng của saw cũng theo $9003, chia 14 thay vì 16 như pulse.
+    // Divider vẫn chạy kể cả khi E=0 (đúng tài liệu VRC6) — chỉ output bị ép 0
+    // ở cuối hàm, không có "return" sớm nào ở đây để bỏ qua việc clock.
+    const uint16_t sawPeriod = static_cast<uint16_t>(saw.period >> vrc6FreqShift);
 
     // Snap debugCyclePeak ngay khi note VỪA bật lại (step==0, timer chưa tick lần nào).
     if (saw.debugStep == 0 && saw.debugTimer == saw.period)
     {
-        saw.debugCyclePeak = std::clamp(static_cast<float>(saw.rate) * 7.0f / 8.0f, 0.0f, 31.0f);
+        saw.debugCyclePeak = std::clamp(static_cast<float>(saw.rate) * 6.0f / 8.0f, 0.0f, 31.0f);
     }
 
     // Bộ đếm riêng cho oscilloscope, LUÔN tick song song bất kể smoothSawEnabled,
@@ -577,10 +600,10 @@ void Mapper_024::ClockVRC6Audio()
     if (saw.debugTimer == 0)
     {
         saw.debugTimer = saw.period;
-        saw.debugSubstepPeriod = saw.period; 
+        saw.debugSubstepPeriod = saw.period;
         if (saw.debugStep == 13) // sắp wrap về 0 ở bước tăng ngay dưới
         {
-            saw.debugCyclePeak = std::clamp(static_cast<float>(saw.rate) * 7.0f / 8.0f, 0.0f, 31.0f);
+            saw.debugCyclePeak = std::clamp(static_cast<float>(saw.rate) * 6.0f / 8.0f, 0.0f, 31.0f);
         }
 
         saw.debugStep++;
@@ -594,13 +617,13 @@ void Mapper_024::ClockVRC6Audio()
 
     if (smoothSawEnabled)
     {
-        const float cycleLength = static_cast<float>(saw.period + 1) * 14.0f;
+        const float cycleLength = static_cast<float>(sawPeriod + 1) * 14.0f;
         saw.phase += 1.0f / cycleLength;
 
         if (saw.phase >= 1.0f)
             saw.phase -= 1.0f;
 
-        float peak = static_cast<float>(saw.rate) * 7.0f / 8.0f;
+        float peak = static_cast<float>(saw.rate) * 6.0f / 8.0f;
         if (peak > 31.0f)
             peak = 31.0f;
 
@@ -611,20 +634,23 @@ void Mapper_024::ClockVRC6Audio()
     {
         if (saw.timer == 0)
         {
-            saw.timer = saw.period;
+            saw.timer = sawPeriod;
 
-            if (saw.step == 0)
-                saw.accumulator = 0;
-
-            if (saw.step & 1)
-                saw.accumulator += saw.rate;
-
+            // Theo nesdev "VRC6 audio": rate A được CỘNG 6 lần trong 1 chu kỳ 14 bước
+            // (ở các bước chẵn 2,4,6,8,10,12); ở lần thứ 7 (bước 14, tức wrap về 0),
+            // accumulator bị ÉP VỀ 0 thay vì cộng thêm A. Bản trước đó cộng nhầm ở CẢ
+            // 7 bước lẻ (1,3,...,13) và reset thêm ở bước 0, khiến mức đỉnh sai và
+            // luôn bị xóa về 0 đúng lúc mẫu đỉnh được đọc ra.
             saw.step++;
 
             if (saw.step >= 14)
             {
                 saw.step = 0;
                 saw.accumulator = 0;
+            }
+            else if ((saw.step & 1) == 0) // bước 2,4,6,8,10,12: cộng A (6 lần/chu kỳ)
+            {
+                saw.accumulator = static_cast<uint8_t>(saw.accumulator + saw.rate);
             }
 
             saw.prev_output = saw.output;
@@ -635,40 +661,51 @@ void Mapper_024::ClockVRC6Audio()
             saw.timer--;
         }
     }
+
+    if (!saw.enable)
+    {
+        // E=0: chỉ ép output=0 (đã clock xong ở trên, divider không bị dừng).
+        saw.output = 0.0f;
+        saw.filtered_output = 0.0f;
+        saw.debugCyclePeak = 0.0f;
+    }
+}
+void Mapper_024::SetChannelGain(const QString& channelId, float gain)
+{
+    gain = std::clamp(gain, 0.0f, 2.0f);
+
+    if (channelId == "vrc6.pulse1")      gainVRC6Pulse1 = gain;
+    else if (channelId == "vrc6.pulse2") gainVRC6Pulse2 = gain;
+    else if (channelId == "vrc6.saw")    gainVRC6Saw = gain;
+    // channelId khác không thuộc VRC6 -> bỏ qua, không xử lý ở đây
 }
 
+// Theo nesdev "VRC6 audio mixing": DAC 6-bit CỘNG TUYẾN TÍNH 2 pulse 4-bit (0..15)
+// và 5 bit cao của saw accumulator (0..31), rồi VRC6 được trộn ĐỘC LẬP và TUYẾN TÍNH
+// với APU (không đi qua công thức phi tuyến của APU). Pulse VRC6 ở volume tối đa
+// gần bằng một pulse APU ở volume tối đa, nên hệ số quy đổi 1 bước = (pulse APU đầy)/15.
 float Mapper_024::GetExpansionAudio()
 {
     if (muteVRC6) return 0.0f;
 
-    float p1 = pulse1.output * 20.0f;
-    float p2 = pulse2.output * 20.0f;
-    constexpr float sawGain = 1.8f;
-    float s = saw.GetCleanOutput(smoothSawEnabled) * 31.0f * sawGain;
-    float vrc6_mix = (p1 + p2 + s) / (40.0f + 31.0f * sawGain);
-    return vrc6_mix;
+    // APU_PULSE_STRENGTH = mức 1 pulse APU ở volume tối đa (15), tính từ đúng công
+    // thức phi tuyến của APU (95.88 / (8128/15 + 100)). VRC6_SCALE = APU_PULSE_STRENGTH/15
+    // -> mỗi bước 0..15 của pulse VRC6 và mỗi bước 0..31 của saw nặng bằng nhau.
+    constexpr float APU_PULSE_STRENGTH = 95.88f / (8128.0f / 15.0f + 100.0f);
+    constexpr float VRC6_SCALE = APU_PULSE_STRENGTH / 15.0f;
+
+    const float p1 = muteVRC6Pulse1 ? 0.0f : pulse1.output * 15.0f * gainVRC6Pulse1;
+    const float p2 = muteVRC6Pulse2 ? 0.0f : pulse2.output * 15.0f * gainVRC6Pulse2;
+    const float s = muteVRC6Saw ? 0.0f : saw.GetCleanOutput(smoothSawEnabled) * 31.0f * gainVRC6Saw;
+
+    return (p1 + p2 + s) * VRC6_SCALE;
 }
 
 void Mapper_024::GetExpansionAudioStereo(float& left, float& right)
 {
-    if (muteVRC6)
-    {
-        left = 0.0f;
-        right = 0.0f;
-        return;
-    }
-
-    float p1 = pulse1.output * 20.0f;
-    float p2 = pulse2.output * 20.0f;
-    constexpr float sawGain = 1.8f;
-    float s = saw.GetCleanOutput(smoothSawEnabled) * 31.0f * sawGain;
-
-    float mixL = (p1 * 0.60f) + (p2 * 0.40f) + (s * 0.50f);
-    float mixR = (p1 * 0.40f) + (p2 * 0.60f) + (s * 0.50f);
-
-    const float stereoNorm = 20.0f + 20.0f * sawGain;
-    left = mixL / stereoNorm;
-    right = mixR / stereoNorm;
+    // Phần cứng VRC6 là MONO (DAC đơn), không có pan giữa các kênh trong tài liệu.
+    const float m = GetExpansionAudio();
+    left = right = m;
 }
 void Mapper_024::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
 {
@@ -679,18 +716,22 @@ void Mapper_024::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
         ch3 = 0.0f;
         return;
     }
-    ch1 = pulse1.output;
-    ch2 = pulse2.output;
-    if (smoothSawEnabled && saw.enable && saw.period >= 8)
+    ch1 = muteVRC6Pulse1 ? 0.0f : std::clamp(pulse1.output * gainVRC6Pulse1, 0.0f, 1.0f);
+    ch2 = muteVRC6Pulse2 ? 0.0f : std::clamp(pulse2.output * gainVRC6Pulse2, 0.0f, 1.0f);
+    if (muteVRC6Saw)
+    {
+        ch3 = 0.0f;
+    }
+    else if (smoothSawEnabled && saw.enable && saw.period >= 8)
     {
         float frac = static_cast<float>(saw.debugSubstepPeriod - saw.debugTimer) / static_cast<float>(saw.debugSubstepPeriod + 1);
         frac = std::clamp(frac, 0.0f, 1.0f);
         float rampProgress = (static_cast<float>(saw.debugStep) + frac) / 14.0f;
-        ch3 = std::clamp(rampProgress * (saw.debugCyclePeak / 31.0f), 0.0f, 1.0f);
+        ch3 = std::clamp(rampProgress * (saw.debugCyclePeak / 31.0f) * gainVRC6Saw, 0.0f, 1.0f);
     }
     else
     {
-        ch3 = saw.output;
+        ch3 = std::clamp(saw.output * gainVRC6Saw, 0.0f, 1.0f);
     }
 }
 
@@ -703,16 +744,16 @@ void Mapper_024::GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const
         return v;
         };
 
-    ch1 = (!muteVRC6 && pulse1.enable && pulse1.period >= 8)
+    ch1 = (!muteVRC6 && !muteVRC6Pulse1 && pulse1.enable && pulse1.period >= 8)
         ? clampPeriod(float(pulse1.period + 1) * 16.0f * CPU_TO_SAMPLE)
         : 0.0f;
 
-    ch2 = (!muteVRC6 && pulse2.enable && pulse2.period >= 8)
+    ch2 = (!muteVRC6 && !muteVRC6Pulse2 && pulse2.enable && pulse2.period >= 8)
         ? clampPeriod(float(pulse2.period + 1) * 16.0f * CPU_TO_SAMPLE)
         : 0.0f;
 
     // VRC6 saw: 14 steps / chu kỳ.
-    ch3 = (!muteVRC6 && saw.enable && saw.period >= 8)
+    ch3 = (!muteVRC6 && !muteVRC6Saw && saw.enable && saw.period >= 8)
         ? clampPeriod(float(saw.period + 1) * 14.0f * CPU_TO_SAMPLE)
         : 0.0f;
 }
@@ -720,8 +761,8 @@ void Mapper_024::GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const
 
 void Mapper_024::GetVRC6DebugDuty(float& ch1, float& ch2) const
 {
-    auto calc = [&](const VRC6Pulse& p) -> float {
-        if (muteVRC6 || !p.enable || p.period < 8 || p.volume == 0)
+    auto calc = [&](const VRC6Pulse& p, bool chMuted) -> float {
+        if (muteVRC6 || chMuted || !p.enable || p.period < 8 || p.volume == 0)
             return -1.0f;
 
         if (p.mode)
@@ -730,8 +771,8 @@ void Mapper_024::GetVRC6DebugDuty(float& ch1, float& ch2) const
         return float(p.duty & 0x07);
         };
 
-    ch1 = calc(pulse1);
-    ch2 = calc(pulse2);
+    ch1 = calc(pulse1, muteVRC6Pulse1);
+    ch2 = calc(pulse2, muteVRC6Pulse2);
 }
 
 std::string Mapper_024::GetDebugInfo()
@@ -809,6 +850,9 @@ std::string Mapper_024::GetDebugInfo()
 
     s += "\nAM THANH MO RONG VRC6:\n";
     s += std::string("Mute VRC6 : ") + (muteVRC6 ? "CO" : "KHONG") + "\n";
+    s += std::string("Mute Pulse1 : ") + (muteVRC6Pulse1 ? "CO" : "KHONG") + "\n";
+    s += std::string("Mute Pulse2 : ") + (muteVRC6Pulse2 ? "CO" : "KHONG") + "\n";
+    s += std::string("Mute Saw : ") + (muteVRC6Saw ? "CO" : "KHONG") + "\n";
 
     s += "\nVRC6 Pulse 1:\n";
     s += std::string("Enable=") + (pulse1.enable ? "BAT" : "TAT") +

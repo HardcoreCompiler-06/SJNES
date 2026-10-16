@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 #include <cstdint>
 #include <vector>
@@ -44,11 +62,36 @@ struct AudioDebugChannels {
     float n163Wave7 = 0.0f;
     float n163Wave8 = 0.0f;
 
+    // Phase thật 0..1 trong vòng wavetable N163 (wrap 1->0 = đầu wavetable), cùng view index với n163WaveN.
+    float n163Phase1 = 0.0f;
+    float n163Phase2 = 0.0f;
+    float n163Phase3 = 0.0f;
+    float n163Phase4 = 0.0f;
+    float n163Phase5 = 0.0f;
+    float n163Phase6 = 0.0f;
+    float n163Phase7 = 0.0f;
+    float n163Phase8 = 0.0f;
+
+    float fdsWave = 0.0f;
+
     float pulse1Period = 0.0f;
     float pulse2Period = 0.0f;
     float trianglePeriod = 0.0f;
     float noisePeriod = 0.0f;
     float dmcPeriod = 0.0f;
+
+    // Mốc Restart() DMC tuyệt đối (đơn vị: sample 44.1kHz-equivalent, CÙNG trục
+    // thời gian với dmcPeriod/totalPushed bên AudioWaveWindow), quy đổi từ
+    // DMC::dbgLastLoopRestartCycle. Dùng double vì cycle-count có thể lên tới
+    // hàng tỷ sau phiên chơi dài — float sẽ mất độ chính xác dưới-sample.
+    // -1.0 = chưa đo được loop nào (sample one-shot hoặc vừa đổi $4010-$4013).
+    double dmcRestartAbs = -1.0;
+
+    // Tuổi của lần loop-restart gần nhất, tính bằng SAMPLE, đo tại đúng thời điểm lấy mẫu này
+    // (= (dbgCycleCounter - dbgLastLoopRestartCycle) / cycles_per_sample). Đây là đại lượng
+    // TƯƠNG ĐỐI nên không phụ thuộc trục thời gian tuyệt đối của scope (totalPushed bị
+    // reset khi clearSamples, còn cycle-count thì không). -1.0 = chưa có loop/đo được.
+    double dmcAgeSamples = -1.0;
 
     float vrc6Pulse1Period = 0.0f;
     float vrc6Pulse2Period = 0.0f;
@@ -83,6 +126,8 @@ struct AudioDebugChannels {
     float n163Period6 = 0.0f;
     float n163Period7 = 0.0f;
     float n163Period8 = 0.0f;
+
+    float fdsWavePeriod = 0.0f;
 
     float pulse1Duty = -1.0f;
     float pulse2Duty = -1.0f;
@@ -155,6 +200,14 @@ public:
     void SetDMCReducePopping(bool enable) { dmc.reducePopping = enable; }
     bool GetDMCReducePopping() const { return dmc.reducePopping; }
     Mapper* mapper = nullptr;
+
+    // Mô hình filter đầu ra:
+    //  - true  (mặc định) = Famicom: chỉ 1 high-pass bậc 1 ở 37 Hz (đúng cho cartridge
+    //    có expansion audio như VRC6, vốn chỉ tồn tại trên Famicom).
+    //  - false = NES front-loader: high-pass 90 Hz nối tiếp high-pass 440 Hz.
+    //  Cả hai đều có thêm low-pass 14 kHz sau cùng (nesdev, "APU Mixer").
+    void SetFamicomFilter(bool famicom) { famicomFilter = famicom; lastFilterSampleRate = -1.0; }
+    bool GetFamicomFilter() const { return famicomFilter; }
     void SetSmoothTriangle(bool smooth) { tri.smooth = smooth; }
     bool GetSmoothTriangle() const { return tri.smooth; }
     uint8_t readStatus();
@@ -172,6 +225,17 @@ private:
     bool frame_irq_flag = false;
     bool irq_inhibit = false;
 
+    // Delay áp dụng write $4017: hardware thật KHÔNG apply ngay lập tức trong
+    // cùng cycle ghi lệnh, mà trễ 3 CPU cycle (nếu write rơi vào cycle chẵn)
+    // hoặc 4 CPU cycle (nếu rơi vào cycle lẻ). pending_4017_delay = -1 nghĩa
+    // là không có write nào đang chờ áp dụng.
+    long long total_cpu_cycle_count = 0;
+    int     pending_4017_delay = -1;
+    uint8_t pending_4017_value = 0;
+
+    bool  famicomFilter = true;
+    bool  filterTwoHighpass = false; // true khi đang dùng mô hình NES (2 high-pass)
+
     float hp1 = 0.0f, prev_in1 = 0.0f;
     float hp2 = 0.0f, prev_in2 = 0.0f;
     float lp = 0.0f;
@@ -182,4 +246,14 @@ private:
     float hp1R = 0.0f, prev_in1R = 0.0f;
     float hp2R = 0.0f, prev_in2R = 0.0f;
     float lpR = 0.0f;
+    double lastFilterSampleRate = -1.0;
+    float outFilterA1 = 0.99716f;
+    float outFilterA2 = 0.97910f;
+    float outFilterB = 0.66620f;
+    void UpdateOutputFilterCoeffs(double sampleRateHz);
+
+    // Đồng bộ trạng thái DMC sang phần còn lại của máy: đường IRQ_DMC của CPU và
+    // số cycle CPU bị dừng do DMC DMA (Bus::dmc_stall_cycles).
+    bool dmc_irq_line = false;
+    void SyncDmcToBus();
 };

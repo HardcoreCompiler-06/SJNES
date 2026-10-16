@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "AudioWaveWindow.h"
 #include <QPainterPath>
 #include <QPainter>
@@ -9,6 +27,9 @@
 #include <QOpenGLWidget>
 #include <QSurfaceFormat>
 #include <QOpenGLFunctions>
+#include <QHash>
+#include <QCoreApplication>
+#include <QVector>
 
 // Màu sóng: trắng đồng bộ
 static const QColor CHANNEL_COLORS[] = {
@@ -104,157 +125,29 @@ static float sampleSawSmooth(const QVector<float>& buf, const QVector<float>& ra
     return catmullRom(v0, v1, v2, v3, t);
 }
 
-static float findTrigger(const QVector<float>& buf, int searchStart, int searchEnd, float trigLevel)
-{
-    float bestIdx = float(searchStart);
-    float bestSlope = -1.0f;
-    bool  found = false;
-
-    for (int i = searchEnd; i >= searchStart + 1; i--)
-    {
-        float prev = buf[i - 1];
-        float cur = buf[i];
-
-        if (prev < trigLevel && cur >= trigLevel)
-        {
-            float slope = cur - prev;  // manh hơn = ổn định hơn
-
-            if (!found || slope > bestSlope)
-            {
-                bestSlope = slope;
-                float frac = (slope > 0.0f) ? (trigLevel - prev) / slope : 0.0f;
-                bestIdx = float(i - 1) + frac;
-                found = true;
-
-                if (slope > 0.3f)
-                    break;
-            }
-        }
-    }
-
-    return bestIdx;
-}
-//saw và tam giác lọc riêng =)) vì lọc mạnh quá nó xấu vl
-static QVector<float> computeRealFilterBuffer(const QVector<float>& raw, bool isLightFilter = false)
-{
-    int n = raw.size();
-    QVector<float> out(n);
-    if (n == 0) return out;
-
-    float hp1 = 0.0f, prevIn1 = raw[0];
-    float hp2 = 0.0f, prevIn2 = 0.0f;
-    float lp = 0.0f;
-
-    for (int i = 0; i < n; i++)
-    {
-        float x = raw[i];
-
-        if (isLightFilter)
-        {
-            hp1 = 0.998f * (hp1 + x - prevIn1);   prevIn1 = x;
-            hp2 = 0.994f * (hp2 + hp1 - prevIn2); prevIn2 = hp1;
-            lp += 0.960f * (hp2 - lp); 
-        }
-        else
-        {
-            hp1 = 0.997f * (hp1 + x - prevIn1);   prevIn1 = x;
-            hp2 = 0.992f * (hp2 + hp1 - prevIn2); prevIn2 = hp1;
-            lp += 0.930f * (hp2 - lp);
-        }
-
-        out[i] = lp;
-    }
-    return out;
-}
+// ---- Tùy chọn khóa sóng (đổi true/false để so sánh) ----
+// N163: true = khóa pha bằng phase 24-bit THẬT của chip (n163PhaseN); false = bản cũ (cạnh lên + period).
+constexpr bool kN163PhaseLock = true;
+// N163 (chỉ khi kN163PhaseLock): true = dịch thêm trong 1 chu kỳ để cạnh LÊN cắt mức 0 nằm đúng
+// giao điểm hai trục (giống DMC); false = đầu wavetable (phase 0) nằm giữa khung.
+constexpr bool kN163SnapRisingEdge = true;
+// VRC7: true = chấm điểm ứng viên bằng NCC (bỏ DC/gain); false = MSE như cũ.
+constexpr bool kVrc7NccScore = true;
+// VRC7: true = mẫu tham chiếu cập nhật chậm kiểu EMA (như template DMC), chỉ khi khớp tốt.
+constexpr bool  kVrc7TemplateEma = true;
+constexpr float kVrc7EmaKeepErr = 0.15f; // sai số hình dạng tối đa để còn cập nhật EMA (NCC: 1-ncc)
+constexpr float kVrc7EmaRate = 0.08f;
+// VRC6 Saw: true = khóa trigger giống Pulse/Triangle (findLockedCenterEdge, bám period thật từ APU);
+// false = bản cũ (dò cạnh reset từng frame, không lock).
+constexpr bool kVrc6SawEdgeLock = false;
+// VRC6 Saw (ưu tiên hơn kVrc6SawEdgeLock): true = khóa trực tiếp vào CẠNH RESET (rơi) thật, đặt ngay giữa khung,
+// không dùng cạnh lên cắt mức giữa (sóng bậc thang 7 nấc nên mức giữa trùng 1 nấc -> nhảy giữa 2 nấc -> rung).
+constexpr bool kVrc6SawResetLock = false;
 
 static bool validPhase01(float p)
 {
     return std::isfinite(p) && p >= 0.0f && p <= 1.0f;
 }
-
-// VRC7 PHASE-BUFFER TRIGGER:
-// Mỗi sample waveform có một phase carrier đi kèm. Ta tìm điểm phase wrap (1 -> 0)
-// gần mép trái vùng hiển thị để làm fStart. Như vậy VRC7 đứng yên theo phase thật của
-// emu2413, không còn phụ thuộc zero-crossing của dạng sóng FM nhiều cạnh phụ.
-static float findVrc7PhaseStart(
-    const QVector<float>& phase,
-    int n,
-    int visibleSamples,
-    float periodHint,
-    bool& ok
-)
-{
-    ok = false;
-
-    if (phase.size() != n || n < visibleSamples + 4)
-        return float(n - visibleSamples);
-
-    if (!(periodHint >= 4.0f && periodHint <= 8192.0f))
-        return float(n - visibleSamples);
-
-    const float desired = float(n - visibleSamples);
-    const int center = std::clamp(int(std::round(desired)), 1, n - 2);
-    const int radius = std::clamp(int(periodHint * 2.5f), 24, std::max(32, visibleSamples * 3));
-
-    const int scanStart = std::max(1, center - radius);
-    const int scanEnd = std::min(n - 2, center + radius);
-
-    float bestIdx = -1.0f;
-    float bestDist = 1e30f;
-
-    for (int i = scanStart + 1; i <= scanEnd; ++i)
-    {
-        float prev = phase[i - 1];
-        float cur = phase[i];
-
-        if (!validPhase01(prev) || !validPhase01(cur))
-            continue;
-
-        // Wrap thật của carrier phase. Dùng ngưỡng rộng để tránh nhầm vibrato nhỏ thành wrap.
-        if (prev > 0.55f && cur < 0.45f && (prev - cur) > 0.25f)
-        {
-            float denom = (1.0f - prev) + cur;
-            float frac = (denom > 0.000001f) ? (1.0f - prev) / denom : 0.0f;
-            frac = std::clamp(frac, 0.0f, 1.0f);
-
-            float idx = float(i - 1) + frac;
-            float dist = std::abs(idx - desired);
-
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestIdx = idx;
-            }
-        }
-    }
-
-    if (bestIdx >= 0.0f)
-    {
-        ok = true;
-        return bestIdx;
-    }
-
-    // Fallback cho nốt quá trầm / chưa có wrap trong cửa sổ: dùng phase tại vị trí desired
-    // để suy ra phase-0 gần đó. Fallback này vẫn dùng phase buffer theo sample, không dùng
-    // zero-crossing waveform.
-    int di = std::clamp(int(desired), 0, n - 1);
-    float ph = phase[di];
-    if (validPhase01(ph))
-    {
-        float start = desired - ph * periodHint;
-
-        while (start < desired - periodHint * 0.5f)
-            start += periodHint;
-        while (start > desired + periodHint * 0.5f)
-            start -= periodHint;
-
-        ok = true;
-        return start;
-    }
-
-    return float(n - visibleSamples);
-}
-
 
 // Tạo fingerprint nhỏ cho một cửa sổ waveform VRC7.
 // Đây là kiểu CorrScope: không bắt một cạnh zero-cross duy nhất nữa, mà so cả hình sóng
@@ -308,6 +201,32 @@ static float vrc7RefError(const QVector<float>& a, const QVector<float>& b)
     if (a.size() != b.size() || a.isEmpty())
         return 1e30f;
 
+    if (kVrc7NccScore)
+    {
+        // NCC: trừ trung bình rồi chuẩn hóa năng lượng -> không phụ thuộc DC/gain, chỉ so HÌNH DẠNG.
+        // 1 - ncc có thang gần với MSE của ref đã chuẩn hóa nên các hệ số phạt bên dưới giữ nguyên.
+        const int cnt = a.size();
+        double ma = 0.0, mb = 0.0;
+        for (int i = 0; i < cnt; ++i) { ma += a[i]; mb += b[i]; }
+        ma /= double(cnt);
+        mb /= double(cnt);
+
+        double dot = 0.0, ea = 0.0, eb = 0.0;
+        for (int i = 0; i < cnt; ++i)
+        {
+            const double x = double(a[i]) - ma;
+            const double y = double(b[i]) - mb;
+            dot += x * y;
+            ea += x * x;
+            eb += y * y;
+        }
+
+        if (ea < 1e-9 || eb < 1e-9)
+            return (ea < 1e-9 && eb < 1e-9) ? 0.0f : 1.0f; // phẳng vs phẳng = khớp
+
+        return float(std::clamp(1.0 - dot / std::sqrt(ea * eb), 0.0, 2.0));
+    }
+
     float err = 0.0f;
     for (int i = 0; i < a.size(); ++i)
     {
@@ -317,12 +236,6 @@ static float vrc7RefError(const QVector<float>& a, const QVector<float>& b)
     return err / float(a.size());
 }
 
-// CorrScope-style VRC7 start picker + FIXED X ANCHOR:
-// Bản gốc đã đứng yên tốt, nhưng khi VRC7 vibrato/pitch uốn cao-thấp-cao-thấp,
-// nếu lấy phase-wrap làm mép trái hiển thị thì cả hàng waveform sẽ bị kéo trôi ngang.
-// Cách này vẫn giữ logic CorrScope correlation của bản ổn, nhưng đổi ý nghĩa candidate:
-// candidate là phase-wrap thật được NEO ở một vị trí X cố định trong màn hình.
-// Khi period thay đổi, waveform sẽ co/dãn ngang quanh điểm neo đó, không trượt cả hàng.
 static float findVrc7CorrscopeStart(
     const QVector<float>& wave,
     const QVector<float>& phase,
@@ -389,38 +302,29 @@ static float findVrc7CorrscopeStart(
         float ph = phase[ai];
         if (validPhase01(ph))
         {
-            if (anchorCandidates.isEmpty() && hasHint)
+            const float maxStart = float(n - visibleSamples - 2);
+            const float baseAnchor = desiredAnchor - ph * periodHint;
+
+            for (int k = -16; k <= 16; ++k)
             {
-                int ai = std::clamp(int(std::round(desiredAnchor)), 0, n - 1);
-                float ph = phase[ai];
+                float anchor = baseAnchor + float(k) * periodHint;
+                float candidateStart = anchor - anchorOffset;
 
-                if (validPhase01(ph))
-                {
-                    const float maxStart = float(n - visibleSamples - 2);
-                    const float baseAnchor = desiredAnchor - ph * periodHint;
+                if (candidateStart >= 0.0f && candidateStart <= maxStart)
+                    anchorCandidates.push_back(anchor);
+            }
 
-                    for (int k = -16; k <= 16; ++k)
-                    {
-                        float anchor = baseAnchor + float(k) * periodHint;
-                        float candidateStart = anchor - anchorOffset;
+            if (anchorCandidates.isEmpty())
+            {
+                float anchor = baseAnchor;
+                while (anchor < desiredAnchor - periodHint * 0.5f)
+                    anchor += periodHint;
+                while (anchor > desiredAnchor + periodHint * 0.5f)
+                    anchor -= periodHint;
 
-                        if (candidateStart >= 0.0f && candidateStart <= maxStart)
-                            anchorCandidates.push_back(anchor);
-                    }
-
-                    if (anchorCandidates.isEmpty())
-                    {
-                        float anchor = baseAnchor;
-                        while (anchor < desiredAnchor - periodHint * 0.5f)
-                            anchor += periodHint;
-                        while (anchor > desiredAnchor + periodHint * 0.5f)
-                            anchor -= periodHint;
-
-                        float candidateStart = anchor - anchorOffset;
-                        candidateStart = std::clamp(candidateStart, 0.0f, maxStart);
-                        anchorCandidates.push_back(candidateStart + anchorOffset);
-                    }
-                }
+                float candidateStart = anchor - anchorOffset;
+                candidateStart = std::clamp(candidateStart, 0.0f, maxStart);
+                anchorCandidates.push_back(candidateStart + anchorOffset);
             }
         }
     }
@@ -430,6 +334,7 @@ static float findVrc7CorrscopeStart(
 
     float bestStart = defaultStart;
     float bestScore = 1e30f;
+    float bestShapeErr = 1e30f;
     QVector<float> bestRef;
 
     for (float anchor : anchorCandidates)
@@ -441,9 +346,11 @@ static float findVrc7CorrscopeStart(
         buildVrc7CorrRef(wave, candStart, visibleSamples, ref);
 
         float score = 0.0f;
+        float shapeErr = 1e30f;
         if (hasPrevRef && prevRef.size() == ref.size())
         {
-            score = vrc7RefError(ref, prevRef);
+            shapeErr = vrc7RefError(ref, prevRef);
+            score = shapeErr;
             score += std::abs(anchor - desiredAnchor) / std::max(1.0f, float(visibleSamples)) * 0.035f;
         }
         else
@@ -461,6 +368,7 @@ static float findVrc7CorrscopeStart(
         {
             bestScore = score;
             bestStart = candStart;
+            bestShapeErr = shapeErr;
             bestRef = ref;
         }
     }
@@ -468,6 +376,13 @@ static float findVrc7CorrscopeStart(
     if (!bestRef.isEmpty())
     {
         newRef = bestRef;
+        // Template-lock kiểu DMC: mẫu tham chiếu chỉ trôi CHẬM theo hình sóng khi còn khớp tốt,
+        // nên không bị kéo theo từng frame (sai số không cộng dồn). Khớp kém -> thay hẳn.
+        if (kVrc7TemplateEma && hasPrevRef && prevRef.size() == bestRef.size() && bestShapeErr < kVrc7EmaKeepErr)
+        {
+            for (int k = 0; k < newRef.size(); ++k)
+                newRef[k] = prevRef[k] + (bestRef[k] - prevRef[k]) * kVrc7EmaRate;
+        }
         ok = true;
         lastAnchorAbs = absBase + (qint64)std::llround(bestStart + anchorOffset);
         hasLastAnchorAbs = true;
@@ -479,103 +394,170 @@ static float findVrc7CorrscopeStart(
 }
 
 
-static bool findVrc7LatestCycle(
+// =====================================================================================
+// N163 - TẦNG 1: khóa pha bằng PHASE THẬT của chip
+// -------------------------------------------------------------------------------------
+// Wavetable 4-bit tùy ý có nhiều cạnh lên mỗi chu kỳ nên dò cạnh trên waveform dễ khóa nhầm
+// cạnh phụ. Chip có sẵn phase 24-bit mỗi kênh (đã chuẩn hóa 0..1, cùng chỉ số với buffer):
+// mẫu i có phase phi_i nghĩa là nó cách ĐẦU wavetable phi_i*P mẫu => đầu chu kỳ chứa i là
+// w_i = i - phi_i*P. Mọi w_i (sau khi dời bội số P) phải trùng nhau; lấy TRUNG BÌNH để triệt
+// bước lượng tử của DAC ghép kênh (mỗi kênh chỉ cập nhật phase mỗi 15*N chu kỳ CPU ~ 3 mẫu).
+// wStart: toạ độ buffer của một đầu wavetable sao cho [wStart, wStart+P+3] nằm trọn trong buffer.
+// offset: (tùy chọn) độ dời trong chu kỳ để cạnh LÊN cắt mức 0 của chính đường đang vẽ nằm giữa khung.
+// Vị trí giữa khung = wStart + offset (mod P); vì sóng lặp nên chọn cạnh nào hình cũng như nhau.
+// =====================================================================================
+
+
+static bool n163PhaseLock(
     const QVector<float>& phase,
+    const QVector<float>& wave,   // filteredBuf (đúng thứ đang vẽ)
     int n,
-    int visibleSamples,
-    float periodHint,
-    float& cycleStart,
-    float& cycleEnd
-)
+    float P,
+    bool snapRisingEdge,
+    float& wStart,
+    float& offset,
+    float& lastFrac,
+    bool& hasLastFrac)
 {
-    cycleStart = 0.0f;
-    cycleEnd = 0.0f;
-
-    if (phase.size() != n || n < 64)
+    if (n < 64 || P < 8.0f || P > 8192.0f || phase.size() != n || wave.size() != n)
         return false;
 
-    const int scanBack = std::clamp(visibleSamples * 8, 512, std::max(512, n - 2));
-    const int scanStart = std::max(1, n - scanBack);
-    const int scanEnd = n - 2;
+    const int last = n - 1;
+    if (!validPhase01(phase[last]))
+        return false;
 
-    QVector<float> wraps;
-    wraps.reserve(512);
+    const float wRef = float(last) - phase[last] * P;
+    const int K = std::clamp(int(P * 2.0f), 64, 2048);
+    const int i0 = std::max(0, last - K);
+    const float tol = std::max(6.0f, P * 0.15f);
 
-    for (int i = scanStart + 1; i <= scanEnd; ++i)
+    double acc = 0.0;
+    int cnt = 0;
+    for (int i = i0; i <= last; ++i)
     {
-        float prev = phase[i - 1];
-        float cur = phase[i];
-
-        if (!validPhase01(prev) || !validPhase01(cur))
+        const float ph = phase[i];
+        if (!validPhase01(ph))
             continue;
 
-        if (prev > 0.55f && cur < 0.45f && (prev - cur) > 0.25f)
+        float wi = float(i) - ph * P;
+        wi += std::round((wRef - wi) / P) * P;
+        const float d = wi - wRef;
+        if (std::abs(d) <= tol)
         {
-            float denom = (1.0f - prev) + cur;
-            float frac = (denom > 0.000001f) ? (1.0f - prev) / denom : 0.0f;
-            frac = std::clamp(frac, 0.0f, 1.0f);
-            wraps.push_back(float(i - 1) + frac);
+            acc += double(d);
+            ++cnt;
         }
     }
 
-    if (wraps.size() < 2)
+    float w = wRef;
+    if (cnt >= 8)
+        w += float(acc / double(cnt));
+
+    // Dời về chu kỳ mới nhất mà [w, w+P+3] vẫn nằm trọn trong buffer.
+    while (w + P + 3.0f > float(last) && w - P >= 1.0f)
+        w -= P;
+    if (w < 1.0f || w + P + 3.0f > float(last))
         return false;
 
-    const bool hasHint = (periodHint >= 4.0f && periodHint <= 8192.0f);
-    const int last = wraps.size() - 1;
-
-    // Thử đoạn dài trước để CH6/sóng mềm không bị đứt tại seam.
-    // Nếu không đủ wrap thì tự lùi xuống 3/2/1 chu kỳ.
-    const int preferredCycles[] = { 6, 4, 3, 2, 1 };
-
-    for (int wantCycles : preferredCycles)
+    offset = 0.0f;
+    if (snapRisingEdge)
     {
-        if (last - wantCycles < 0)
-            continue;
+        // Lấy đúng 1 chu kỳ [w, w+P) ở S điểm, làm mượt TUẦN HOÀN, rồi tìm cạnh lên dốc nhất
+        // cắt mức 0 (lên đều cả hai phía). Hòa (>= 90% mạnh nhất) thì lấy cạnh sớm nhất sau đầu wavetable.
+        const int S = std::clamp(int(std::lround(P)), 32, 1024);
+        QVector<float> cyc(S), sm(S);
+        for (int k = 0; k < S; ++k)
+            cyc[k] = sampleInterp(wave, w + float(k) * P / float(S));
 
-        float a = wraps[last - wantCycles];
-        float b = wraps[last];
-        float segment = b - a;
-        float avgPeriod = segment / float(wantCycles);
-
-        if (segment < 4.0f || segment > float(visibleSamples) * 3.5f)
-            continue;
-
-        if (hasHint)
+        const int Ks = std::max(1, S / 64);
+        float mn = 1e30f, mx = -1e30f;
+        for (int k = 0; k < S; ++k)
         {
-            if (avgPeriod < periodHint * 0.35f || avgPeriod > periodHint * 2.80f)
-                continue;
+            float s = 0.0f;
+            for (int j = -Ks; j <= Ks; ++j)
+                s += cyc[(k + j + S) % S];
+            sm[k] = s / float(2 * Ks + 1);
+            mn = std::min(mn, sm[k]);
+            mx = std::max(mx, sm[k]);
         }
 
-        // Kiểm tra các chu kỳ con không lệch quá vô lý, tránh ăn nhầm wrap lỗi.
-        bool stable = true;
-        for (int k = last - wantCycles + 1; k <= last; ++k)
+        const float range = mx - mn;
+        if (range > 1e-4f)
         {
-            float p = wraps[k] - wraps[k - 1];
-            if (p < 4.0f || p > float(visibleSamples) * 2.5f)
+            const int Kr = std::max(2, S / 16);
+            const float minRise = std::max(1e-5f, range * 0.05f);
+
+            QVector<float> cPos, cRise;
+            float maxRise = 0.0f;
+            for (int k = 0; k < S; ++k)
             {
-                stable = false;
-                break;
+                const float a = sm[(k - 1 + S) % S];
+                const float b = sm[k];
+                if (a < 0.0f && b >= 0.0f)
+                {
+                    const float rise = std::min(b - sm[(k - Kr + S) % S], sm[(k + Kr) % S] - b);
+                    if (rise >= minRise)
+                    {
+                        cPos.push_back(float(k - 1) + (-a) / (b - a));
+                        cRise.push_back(rise);
+                        maxRise = std::max(maxRise, rise);
+                    }
+                }
             }
 
-            if (hasHint && (p < periodHint * 0.25f || p > periodHint * 3.2f))
+            // Hysteresis: nếu đã có cạnh đang bám, giữ cạnh gần nó nhất (miễn còn >= 50% cạnh mạnh nhất
+            // và lệch < 10% chu kỳ). Chỉ khi mất cạnh đó (đổi nốt/đổi wavetable) mới chọn lại.
+            const bool hadLast = hasLastFrac;
+            hasLastFrac = false;
+            int pick = -1;
+
+            if (hadLast)
             {
-                stable = false;
-                break;
+                float bestD = 1e30f;
+                for (int q = 0; q < int(cPos.size()); ++q)
+                {
+                    if (cRise[q] < maxRise * 0.5f)
+                        continue;
+                    float fr = cPos[q] / float(S);
+                    fr -= std::floor(fr);
+                    float d = std::abs(fr - lastFrac);
+                    d = std::min(d, 1.0f - d);
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        pick = q;
+                    }
+                }
+                if (bestD > 0.10f)
+                    pick = -1;
+            }
+
+            if (pick < 0)
+            {
+                for (int q = 0; q < int(cPos.size()); ++q)
+                {
+                    if (cRise[q] >= maxRise * 0.9f)
+                    {
+                        pick = q;
+                        break;
+                    }
+                }
+            }
+
+            if (pick >= 0)
+            {
+                offset = cPos[pick] * P / float(S);
+                float fr = cPos[pick] / float(S);
+                fr -= std::floor(fr);
+                lastFrac = fr;
+                hasLastFrac = true;
             }
         }
-
-        if (!stable)
-            continue;
-
-        cycleStart = a;
-        cycleEnd = b;
-        return true;
     }
 
-    return false;
+    wStart = w;
+    return true;
 }
-
 
 static float resolveLockedTrigger(
     AudioWaveWindow::TrigLockState& lock,
@@ -790,6 +772,427 @@ static float predictEdgeNearStart(
     return edge;
 }
 
+// Độ tăng của tín hiệu quanh một giao cắt đi lên: buf[i+K] - buf[i-1-K].
+// Slope TRÊN 1 SAMPLE chỉ đúng với sóng có cạnh dốc/bậc thang. Triangle ở chế độ "Smooth Triangle"
+// là đường dốc mượt: mỗi sample chỉ tăng ~2*biên_độ/period (vài %), nên ngưỡng slope 5% làm
+// MẤT HẾT cạnh -> trigger không bám được. Đo độ tăng trên một đoạn ~period/8 thì cả bậc thang,
+// dốc mượt lẫn cạnh vuông đều đạt, còn nhiễu nhỏ thì bị loại.
+static inline float risingSpan(const QVector<float>& buf, int n, int i, float periodHint)
+{
+    const int K = std::clamp(int(periodHint / 16.0f), 2, 512);
+    const int a = std::max(0, i - 1 - K);
+    const int b = std::min(n - 1, i + K);
+    return buf[b] - buf[a];
+}
+
+// =====================================================================================
+// TRIGGER DÙNG CHUNG "KIỂU FDS" cho Pulse / Triangle / FDS
+// -------------------------------------------------------------------------------------
+// - Mức trigger + ngưỡng slope tính CỤC BỘ trên vùng cuối buffer (không dùng min/max cả
+//   buffer: envelope/đổi nốt làm mức giữa cũ lệch khỏi sóng hiện tại).
+// - period hint (từ APU/mapper) chỉ dùng để chọn ĐÚNG cạnh (cạnh nào trong chu kỳ) gần
+//   tâm khung hình nhất -> không nhảy giữa các cạnh khi sóng có nhiều cạnh lên.
+// - Vị trí cuối cùng là crossing ĐO ĐƯỢC (nội suy sub-sample) và mốc được gắn lại vào đó
+//   mỗi frame -> sai số period không tích luỹ, không trôi.
+// - Mất dự đoán (đổi nốt, sai period hint...) -> bỏ mốc, rơi về cạnh lên mới nhất.
+// Trả về vị trí cạnh (toạ độ buffer hiện tại) sẽ nằm GIỮA khung, hoặc -1 nếu không có cạnh.
+// =====================================================================================
+static float findLockedCenterEdge(
+    const QVector<float>& buf,
+    int n,
+    int visibleSamples,
+    qint64 absBase,
+    float periodHint,
+    AudioWaveWindow::TrigLockState& lock)
+{
+    const float halfVisible = float(visibleSamples) * 0.5f;
+    const float minEdge = halfVisible;
+    const float maxEdge = float(n) - halfVisible - 2.0f;
+    if (n < 8 || maxEdge <= minEdge)
+        return -1.0f;
+
+    const int scanStart = std::max(1, n - visibleSamples * 4);
+    const int scanEnd = n - 2;
+
+    float lMin = buf[scanStart];
+    float lMax = lMin;
+    for (int si = scanStart; si < n; si++)
+    {
+        lMin = std::min(lMin, buf[si]);
+        lMax = std::max(lMax, buf[si]);
+    }
+    const float lRange = lMax - lMin;
+    if (lRange < 0.0001f)
+        return -1.0f;
+
+    const float level = (lMin + lMax) * 0.5f;
+    const float minRise = std::max(0.0001f, lRange * 0.05f);
+
+    QVector<float> idxs;
+    QVector<float> slopes;
+    idxs.reserve(128);
+    slopes.reserve(128);
+
+    for (int si = scanStart + 1; si <= scanEnd; si++)
+    {
+        const float prev = buf[si - 1];
+        const float cur = buf[si];
+        if (prev < level && cur >= level)
+        {
+            const float rise = risingSpan(buf, n, si, periodHint);
+            if (rise >= minRise)
+            {
+                const float frac = std::clamp((level - prev) / (cur - prev), 0.0f, 1.0f);
+                idxs.push_back(float(si - 1) + frac);
+                slopes.push_back(rise);
+            }
+        }
+    }
+
+    const bool locked = updateHardPeriodAnchor(
+        lock, absBase, idxs, slopes, periodHint, 8.0f, 8192.0f, 0.06f, 0.25f);
+
+    float chosen = -1.0f;
+
+    if (locked && lock.period >= 8.0f)
+    {
+        const float period = lock.period;
+        const float predicted = predictEdgeNearStart(
+            lock, absBase, float(n) - halfVisible, minEdge, maxEdge);
+
+        if (predicted >= 0.0f)
+        {
+            float bestDist = std::max(3.0f, period * 0.25f);
+            for (int i = 0; i < idxs.size(); i++)
+            {
+                if (idxs[i] < minEdge || idxs[i] > maxEdge)
+                    continue;
+                const float d = std::abs(idxs[i] - predicted);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    chosen = idxs[i];
+                }
+            }
+        }
+
+        if (chosen >= 0.0f)
+            lock.lockAbsPos = absBase + (qint64)std::llround(chosen); // re-anchor vào crossing thật
+        else
+            lock.locked = false; // mất dự đoán -> acquire lại; GIỮ lock.period (cycle view dùng khi nốt bị ngắt)
+    }
+
+    if (chosen < 0.0f)
+    {
+        // Không có period hint hợp lệ / vừa mất lock: lấy cạnh lên mới nhất còn nằm trong khung.
+        for (int i = idxs.size() - 1; i >= 0; i--)
+        {
+            if (idxs[i] >= minEdge && idxs[i] <= maxEdge)
+            {
+                chosen = idxs[i];
+                break;
+            }
+        }
+    }
+
+    return chosen;
+}
+
+// =====================================================================================
+// VRC6 SAW: khóa trigger vào CẠNH RESET (bước rơi 1 sample, duy nhất mỗi chu kỳ)
+// -------------------------------------------------------------------------------------
+// Giống findLockedCenterEdge (hard period anchor + re-anchor vào cạnh đo được) nhưng đo trên cạnh
+// reset thay vì cạnh lên cắt mức giữa. Saw VRC6 là sóng bậc thang nên mức giữa trùng đúng 1 nấc,
+// cạnh lên sẽ nhảy qua lại giữa 2 nấc kề nhau (lệch ~P/7). Cạnh reset thì luôn ở đúng một chỗ.
+// Trả về vị trí reset (toạ độ buffer, nằm giữa 2 sample) sẽ đặt đúng GIỮA khung, hoặc -1 nếu không có.
+// =====================================================================================
+static float findLockedCenterReset(
+    const QVector<float>& raw,
+    int n,
+    int visibleSamples,
+    qint64 absBase,
+    float periodHint,
+    AudioWaveWindow::TrigLockState& lock)
+{
+    const float halfVisible = float(visibleSamples) * 0.5f;
+    const float minEdge = halfVisible;
+    const float maxEdge = float(n) - halfVisible - 2.0f;
+    if (n < 8 || maxEdge <= minEdge)
+        return -1.0f;
+
+    const int scanStart = std::max(1, n - visibleSamples * 4);
+
+    float lMin = raw[scanStart];
+    float lMax = lMin;
+    for (int si = scanStart; si < n; si++)
+    {
+        lMin = std::min(lMin, raw[si]);
+        lMax = std::max(lMax, raw[si]);
+    }
+    const float lRange = lMax - lMin;
+    if (lRange < 0.0001f)
+        return -1.0f;
+
+    // Reset = cú rơi từ đỉnh xuống đáy, cỡ cả biên độ (mỗi nấc chỉ bằng ~1/6 biên độ) -> ngưỡng tương đối,
+    // không phụ thuộc volume.
+    const float minDrop = std::max(0.0001f, lRange * 0.5f);
+
+    QVector<float> idxs;
+    QVector<float> slopes;
+    idxs.reserve(128);
+    slopes.reserve(128);
+
+    for (int si = scanStart + 1; si <= n - 1; si++)
+    {
+        const float drop = raw[si - 1] - raw[si];
+        if (drop >= minDrop)
+        {
+            idxs.push_back(float(si) - 0.5f); // bước nhảy nằm giữa sample si-1 và si
+            slopes.push_back(drop);
+        }
+    }
+
+    const bool locked = updateHardPeriodAnchor(
+        lock, absBase, idxs, slopes, periodHint, 8.0f, 8192.0f, 0.06f, 0.25f);
+
+    float chosen = -1.0f;
+
+    if (locked && lock.period >= 8.0f)
+    {
+        const float period = lock.period;
+        const float predicted = predictEdgeNearStart(
+            lock, absBase, float(n) - halfVisible, minEdge, maxEdge);
+
+        if (predicted >= 0.0f)
+        {
+            float bestDist = std::max(3.0f, period * 0.25f);
+            for (int i = 0; i < idxs.size(); i++)
+            {
+                if (idxs[i] < minEdge || idxs[i] > maxEdge)
+                    continue;
+                const float d = std::abs(idxs[i] - predicted);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    chosen = idxs[i];
+                }
+            }
+        }
+
+        if (chosen >= 0.0f)
+            lock.lockAbsPos = absBase + (qint64)std::llround(chosen); // re-anchor vào reset thật
+        else
+            lock.locked = false; // mất dự đoán -> acquire lại; giữ lock.period
+    }
+
+    if (chosen < 0.0f)
+    {
+        // Không có period hint hợp lệ / vừa mất lock: lấy reset mới nhất còn nằm trong khung.
+        for (int i = idxs.size() - 1; i >= 0; i--)
+        {
+            if (idxs[i] >= minEdge && idxs[i] <= maxEdge)
+            {
+                chosen = idxs[i];
+                break;
+            }
+        }
+    }
+
+    return chosen;
+}
+
+// =====================================================================================
+// CYCLE-LOCKED VIEW (hiển thị đối xứng trái/phải) cho sóng vuông + tam giác
+// -------------------------------------------------------------------------------------
+// Hiển thị cuộn thông thường: mép phải là dữ liệu MỚI, mép trái là dữ liệu CŨ hơn cả một
+// cửa sổ -> đổi nốt / đổi volume / ngắt tiếng về 0 thì bên phải đổi trước, bên trái đổi
+// sau (vệt "quét" từ phải sang trái).
+// Cycle view: chỉ lấy MỘT chu kỳ mới nhất (bắt đầu tại một cạnh lên đo được) rồi lặp lại
+// nó trên toàn khung theo period hiện tại, cạnh tham chiếu đặt đúng giữa khung. Vì mọi
+// điểm trên khung đều suy ra từ cùng một chu kỳ mới nhất nên hai nửa đổi ĐỒNG THỜI.
+// =====================================================================================
+constexpr bool kDmcTriggerRising = true; // DMC: true = cạnh LÊN (/) đi qua giao điểm 2 trục ở giữa; false = cạnh XUỐNG (\)
+constexpr bool kCycleLockedView = true; // true = lặp 1 chu kỳ trên cả khung (đối xứng, chuyển động "cứng"); false = cuộn tự nhiên
+
+struct CycleViewInfo
+{
+    bool ok = false;
+    float ref = 0.0f;    // toạ độ buffer của cạnh lên bắt đầu chu kỳ mới nhất
+    float period = 0.0f; // số sample mỗi chu kỳ
+};
+
+// periodHint CHỈ để biết "cỡ" chu kỳ (chọn vùng quét). Chu kỳ dùng để vẽ được ĐO TRỰC TIẾP từ các
+// cạnh lên của chính tín hiệu, nên hint sai/rung hay pitch đổi cực nhanh đều không làm hình bị
+// cắt cụt hoặc dính hai chu kỳ vào nhau:
+//  - nốt giữ nguyên (3-4 khoảng cạnh gần nhất lệch < 4%): lấy trung bình cho mượt, ổn định;
+//  - pitch đang đổi nhanh: lấy ĐÚNG chu kỳ hoàn chỉnh mới nhất [cạnh trước, cạnh sau].
+static CycleViewInfo buildCycleView(const QVector<float>& raw, int n, float periodHint)
+{
+    CycleViewInfo cv;
+    if (n < 64 || periodHint < 8.0f || periodHint > 8192.0f)
+        return cv;
+
+    const int span = std::min(n - 2, std::clamp(int(periodHint * 4.0f), 512, 8192)); // đủ ~3-4 chu kỳ kể cả nốt rất trầm
+    const int lo = n - span;
+
+    float mn = raw[lo];
+    float mx = mn;
+    for (int i = lo; i < n; i++)
+    {
+        mn = std::min(mn, raw[i]);
+        mx = std::max(mx, raw[i]);
+    }
+    const float range = mx - mn;
+    const float level = (mn + mx) * 0.5f;
+    const float minRise = std::max(0.0001f, range * 0.05f);
+
+    // Các cạnh lên (nội suy sub-sample), cũ -> mới.
+    QVector<float> xs;
+    if (range >= 0.0001f)
+    {
+        for (int i = lo + 1; i <= n - 2; i++)
+        {
+            const float prev = raw[i - 1];
+            const float cur = raw[i];
+            if (prev < level && cur >= level && risingSpan(raw, n, i, periodHint) >= minRise)
+                xs.push_back(float(i - 1) + std::clamp((level - prev) / (cur - prev), 0.0f, 1.0f));
+        }
+    }
+
+    float period = periodHint;
+    float ref = float(n) - period - 2.0f; // mặc định: đoạn mới nhất (kênh im -> mẫu phẳng)
+
+    if (xs.size() >= 2)
+    {
+        const int m = xs.size() - 1;
+        const float lastLen = xs[m] - xs[m - 1];
+
+        if (lastLen >= 4.0f)
+        {
+            if (float(n) - xs[m] > lastLen * 1.5f + 4.0f)
+            {
+                // Quá lâu không có cạnh mới: nốt bị ngắt (hoặc đổi quá trầm). Lấy đoạn mới nhất để
+                // khi tín hiệu về 0 thì cả khung phẳng cùng lúc.
+                period = lastLen;
+                ref = float(n) - period - 2.0f;
+            }
+            else
+            {
+                // Tối đa 4 khoảng cạnh gần nhất.
+                float sum = lastLen, smin = lastLen, smax = lastLen;
+                int cnt = 1;
+                for (int i = m - 1; i >= 1 && cnt < 4; --i, ++cnt)
+                {
+                    const float d = xs[i] - xs[i - 1];
+                    sum += d;
+                    smin = std::min(smin, d);
+                    smax = std::max(smax, d);
+                }
+                const float mean = sum / float(cnt);
+                const bool steady = cnt >= 3 && (smax - smin) <= mean * 0.04f;
+
+                period = steady ? mean : lastLen;
+                ref = xs[m - 1];
+
+                // Có period THẬT từ APU (chính xác tới phần lẻ sample) và khớp với số đo
+                // -> dùng nó làm period vẽ, thay vì period đo từ cạnh. Cạnh bậc thang của
+                // tam giác chỉ rơi vào số nguyên sample (lệch +-1) nên period đo được rung
+                // theo từng frame; vì khung lặp ~20-60 chu kỳ nên các chu kỳ ở xa tâm bị
+                // trượt qua lại ("trôi"), lúc nặng lúc nhẹ tùy nốt có gần số nguyên hay không.
+                // Mốc ref cũng được fit trung bình từ vài cạnh gần nhất để bớt rung.
+                if (periodHint >= 8.0f && std::abs(period - periodHint) <= periodHint * 0.06f)
+                {
+                    const float P = periodHint;
+                    const float tol = std::max(1.5f, P * 0.02f);
+                    float acc = 0.0f;
+                    int used = 0;
+                    for (int j = m; j >= 0 && j >= m - 7; --j)
+                    {
+                        const float d = xs[m - 1] - xs[j];
+                        const float q = std::round(d / P);
+                        if (std::abs(d - q * P) <= tol)
+                        {
+                            acc += xs[j] + q * P;
+                            ++used;
+                        }
+                    }
+                    period = P;
+                    if (used > 0)
+                        ref = acc / float(used);
+                }
+            }
+        }
+    }
+
+    if (period < 4.0f || ref < 1.0f)
+        return cv;
+    if (ref + period > float(n - 2))
+        ref = std::max(1.0f, float(n - 2) - period);
+
+    cv.ok = true;
+    cv.ref = ref;
+    cv.period = period;
+    return cv;
+}
+
+constexpr bool  kSmoothRelease = true;
+constexpr float kReleaseDecay = 0.90f; // nhân mỗi lần vẽ (~100 lần/giây): nhỏ hơn = tắt nhanh hơn
+
+// Đuôi buffer phẳng lâu hơn mức một nốt đang kêu có thể phẳng => kênh đã bị ngắt.
+static bool tailIsSilent(const QVector<float>& raw, int n, float periodHint, float globalRange)
+{
+    if (n < 64)
+        return false;
+
+    const bool hasPeriod = periodHint >= 8.0f && periodHint <= 8192.0f;
+    // Sóng vuông/tam giác đang kêu không bao giờ phẳng quá ~1 chu kỳ (duty 75% -> 0.75 chu kỳ).
+    // Chưa biết period thì dùng ngưỡng dài an toàn để không ngắt nhầm nốt trầm.
+    const int lim = hasPeriod ? std::max(48, int(periodHint * 1.25f)) : 2400;
+
+    const float eps = std::max(0.0005f, globalRange * 0.03f);
+    const float last = raw[n - 1];
+    const int maxScan = std::min(n, lim + 2);
+
+    int len = 0;
+    for (int i = n - 1; i >= n - maxScan && std::abs(raw[i] - last) <= eps; --i)
+        ++len;
+
+    return len > lim;
+}
+
+namespace
+{
+    struct ReleaseState
+    {
+        bool active = false;      // đang thu biên độ / đã thu xong và kênh vẫn im
+        float gain = 1.0f;
+        QVector<float> cur;       // drawV của lần vẽ gần nhất khi còn tiếng
+        QVector<float> snap;      // khung hình cuối cùng trước khi bị ngắt
+    };
+    struct ReleaseBank { ReleaseState ch[32]; };
+
+    // Trạng thái theo từng cửa sổ (không cần sửa AudioWaveWindow.h).
+    QHash<const void*, ReleaseBank>& releaseBanks()
+    {
+        static QHash<const void*, ReleaseBank> banks;
+        return banks;
+    }
+}
+
+// Mot timer chung cho moi cua so oscilloscope: tat ca update() roi vao cung mot vong lap su kien
+// nen Qt gop lai thanh mot lan compose/swap cho ca cua so, thay vi ~10 lan lech nhip nhau.
+static QTimer* sharedWaveRefreshTimer()
+{
+    static QTimer* t = nullptr;
+    if (!t)
+    {
+        t = new QTimer(QCoreApplication::instance());
+        t->setTimerType(Qt::PreciseTimer);
+        t->start(16);
+    }
+    return t;
+}
+
 AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
     : QOpenGLWidget(parent), mode(mode)
 {
@@ -799,27 +1202,19 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
         resize(1100, 900);
         setMinimumSize(900, 820);
     }
+    else if (mode == WaveMode::NES)
+    {
+        resize(1100, 560);
+        setMinimumSize(900, 500);
+    }
     else
     {
-        if (mode == WaveMode::NES)
-        {
-            resize(1100, 560);
-            setMinimumSize(900, 500);
-        }
-        else if (mode == WaveMode::VRC7)
-        {
-            resize(1100, 720);
-            setMinimumSize(900, 620);
-        }
-        else
-        {
-            resize(1100, 780);
-            setMinimumSize(900, 700);
-        }
+        resize(1100, 780);
+        setMinimumSize(900, 700);
     }
 
     QSurfaceFormat fmt;
-    fmt.setSamples(4);
+    fmt.setSamples(parent ? 4 : 4);
     setFormat(fmt);
 
     activeChannelCount = 8;
@@ -889,12 +1284,19 @@ AudioWaveWindow::AudioWaveWindow(WaveMode mode, QWidget* parent)
         names[6] = "N163 CH 7";
         names[7] = "N163 CH 8";
     }
+    else if (mode == WaveMode::FDS)
+    {
+        setWindowTitle("NES + FDS Waveform Debug");
+        activeChannelCount = 6;
+
+        names[5] = "FDS Wave";
+    }
     for (int i = 0; i < activeChannelCount; i++)
         buffers[i].reserve(MAX_SAMPLES);
 
     refreshTimer = new QTimer(this);
-    connect(refreshTimer, &QTimer::timeout, this, [this]() { update(); });
-    refreshTimer->start(16);
+    // refreshTimer rieng khong con chay; dung timer chung (xem sharedWaveRefreshTimer).
+    connect(sharedWaveRefreshTimer(), &QTimer::timeout, this, [this]() { update(); });
     for (int i = 0; i < CHANNEL_COUNT; i++)
     {
         dmcSmoothY[i].clear();
@@ -928,6 +1330,15 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
         periods[5] = ch.n163Period6;
         periods[6] = ch.n163Period7;
         periods[7] = ch.n163Period8;
+
+        phases[0] = ch.n163Phase1;
+        phases[1] = ch.n163Phase2;
+        phases[2] = ch.n163Phase3;
+        phases[3] = ch.n163Phase4;
+        phases[4] = ch.n163Phase5;
+        phases[5] = ch.n163Phase6;
+        phases[6] = ch.n163Phase7;
+        phases[7] = ch.n163Phase8;
     }
     else if (mode == WaveMode::VRC7)
     {
@@ -966,6 +1377,12 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
         periods[3] = ch.noisePeriod;
         periods[4] = ch.dmcPeriod;
 
+        // Mốc loop-restart của DMC trên trục của scope (totalPushed): sample đang push có chỉ số
+        // totalPushed[4], lần restart xảy ra `age` sample trước. -1e18 = chưa đo được loop nào.
+        dmcRestartAbs[4] = (ch.dmcAgeSamples >= 0.0)
+            ? double(totalPushed[4]) - ch.dmcAgeSamples
+            : -1e18;
+
         if (mode == WaveMode::VRC6)
         {
             values[5] = ch.vrc6Pulse1;
@@ -996,10 +1413,19 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             periods[6] = ch.mmc5Pulse2Period;
             periods[7] = 0.0f;
         }
+        else if (mode == WaveMode::FDS)
+        {
+            values[5] = ch.fdsWave;
+            periods[5] = ch.fdsWavePeriod;
+        }
     }
 
     for (int i = 0; i < activeChannelCount; i++)
     {
+        // Bo qua kenh khong hien thi (cua so chip NSF khong ve 5 kenh NES, khoi phu chi ve 1-2 kenh...):
+        // khong loc RC, khong push_back, khong lap lai lich su cho kenh ma cua so nay khong ve.
+        if (!isChannelShown(i))
+            continue;
         periodHint[i] = std::clamp(periods[i], 0.0f, 8192.0f);
         const bool isNesTriangle =
             (mode != WaveMode::VRC7 && mode != WaveMode::N163 && i == 2);
@@ -1009,20 +1435,35 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
         if (triangleOff)
         {
 
-            lastVisual[i] = 0.0f;
             periodHint[i] = 0.0f;
 
             if (!triangleZeroGate[i] && genericTrigLock[i].locked &&
                 genericTrigLock[i].period >= 8.0f)
             {
-                int period = std::clamp((int)std::lround(genericTrigLock[i].period),
-                    8, MAX_SAMPLES);
-                int bsize = buffers[i].size();
-                if (bsize >= period)
+                // Chụp 1 chu kỳ cuối (đã lọc, giống hệt thứ cycle view đang vẽ), BẮT ĐẦU đúng
+                // tại cạnh lên của mốc lock và giữ period dạng float. Khi vẽ, chu kỳ này được
+                // ghim vào giữa khung (xem sampleTriFrozen) nên không còn trượt theo thời gian.
+                const float P = genericTrigLock[i].period;
+                const int bsz = int(buffers[i].size());
+                const int fsz = int(filteredBuffers[i].size());
+                const int usable = std::min(bsz, fsz);
+                const int L = int(std::ceil(P)) + 4;
+                const qint64 absBase = (qint64)totalPushed[i] - (qint64)bsz;
+                const float lockIdx = float(genericTrigLock[i].lockAbsPos - absBase);
+                const float kEdge = std::floor((float(usable - 2 - L) - lockIdx) / P);
+                const float e = lockIdx + kEdge * P; // cạnh lên mới nhất mà [e, e+L] còn nằm trọn trong buffer
+                if (e >= 1.0f && int(e) + L + 1 < usable)
                 {
-                    triFrozenCycle[i].resize(period);
-                    for (int k = 0; k < period; k++)
-                        triFrozenCycle[i][k] = buffers[i][bsize - period + k];
+                    const int s0 = int(e);
+                    const float fr = e - float(s0);
+                    triFrozenCycle[i].resize(L);
+                    for (int q = 0; q < L; q++)
+                    {
+                        const float a = filteredBuffers[i][s0 + q];
+                        const float b = filteredBuffers[i][s0 + q + 1];
+                        triFrozenCycle[i][q] = a + (b - a) * fr;
+                    }
+                    triFrozenPeriod[i] = P;
                     triFreezeActive[i] = true;
                     triFreezeAmp[i] = 1.0f;
                 }
@@ -1031,8 +1472,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
         }
         else if (isNesTriangle && triangleZeroGate[i])
         {
-            // BỎ lệnh buffers[i].clear(); 
-            lastVisual[i] = 0.0f;
+            // Kênh bật lại: reset trạng thái tam giác, giữ nguyên buffer. 
             genericTrigLock[i] = TrigLockState{};
             triangleZeroGate[i] = false;
             triFreezeActive[i] = false;
@@ -1097,30 +1537,16 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             RcFilterState& st = filterState[i];
             if (!st.initialized)
             {
-                st.prevIn1 = v;   
+                st.prevIn1 = v;
                 st.initialized = true;
             }
-            bool isVrc6Saw = (mode == WaveMode::VRC6 && i == 7);
-            bool isNesTriangle = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && i == 2);
-
-            if (isVrc6Saw || isNesTriangle)
-            {
-                // BỘ LỌC NHẸ: Giữ góc cạnh sắc nét cho riêng âm Saw
-                st.hp1 = 0.998f * (st.hp1 + v - st.prevIn1);      st.prevIn1 = v; 
-                st.hp2 = 0.994f * (st.hp2 + st.hp1 - st.prevIn2); st.prevIn2 = st.hp1; 
-                st.lp += 0.960f * (st.hp2 - st.lp);     
-            }
-            else
-            {
-                // BỘ LỌC MẠNH: Làm mượt cho tất cả các kênh còn lại
-                st.hp1 = 0.997f * (st.hp1 + v - st.prevIn1);      st.prevIn1 = v;
-                st.hp2 = 0.992f * (st.hp2 + st.hp1 - st.prevIn2); st.prevIn2 = st.hp1;
-                st.lp += 0.930f * (st.hp2 - st.lp);
-            }
+            st.hp1 = 0.999f * (st.hp1 + v - st.prevIn1);      st.prevIn1 = v;
+            st.hp2 = 0.998f * (st.hp2 + st.hp1 - st.prevIn2); st.prevIn2 = st.hp1;
+            st.lp += 0.948f * (st.hp2 - st.lp);
             filteredBuffers[i].push_back(st.lp);
         }
 
-        if (mode == WaveMode::VRC7)
+        if (mode == WaveMode::VRC7 || mode == WaveMode::N163)
         {
             float ph = phases[i];
             if (!std::isfinite(ph))
@@ -1141,7 +1567,7 @@ void AudioWaveWindow::pushChannels(const AudioDebugChannels& ch)
             // đến việc ring buffer hiển thị bị cắt bớt phần cũ.
             if (filteredBuffers[i].size() >= removeCount)
                 filteredBuffers[i].remove(0, removeCount);
-            if (mode == WaveMode::VRC7 && phaseBuffers[i].size() >= removeCount)
+            if ((mode == WaveMode::VRC7 || mode == WaveMode::N163) && phaseBuffers[i].size() >= removeCount)
                 phaseBuffers[i].remove(0, removeCount);
         }
     }
@@ -1156,7 +1582,6 @@ void AudioWaveWindow::clearSamples()
         phaseBuffers[i].clear();
         filteredBuffers[i].clear();
         filterState[i] = RcFilterState{};
-        lastVisual[i] = 0.0f;
         periodHint[i] = 0.0f;
         vrc7LastPhaseStart[i] = 0.0f;
         vrc7HasPhaseStart[i] = false;
@@ -1168,12 +1593,10 @@ void AudioWaveWindow::clearSamples()
         triFreezeActive[i] = false;
         triFrozenCycle[i].clear();
         triFreezeAmp[i] = 0.0f;
-        n163LastTrigger[i] = 0.0f;
-        n163Period[i] = 0.0f;
-        n163LastBufferSize[i] = 0;
-        n163HasTrigger[i] = false;
+        triFrozenPeriod[i] = 0.0f;
         n163SmoothY[i].clear();
         n163SmoothValid[i] = false;
+        n163SnapValid[i] = false;
 
         totalPushed[i] = 0;
         genericTrigLock[i] = TrigLockState{};
@@ -1182,42 +1605,29 @@ void AudioWaveWindow::clearSamples()
         dmcSmoothValid[i] = false;
         dmcCorrRef[i].clear();
         dmcCorrValid[i] = false;
+        dmcRestartAbs[i] = -1e18;
     }
 }
-static float ClampFStartStep(float rawFStart, float& lastFStart, bool& hasLast, float maxStep)
-{
-    if (!hasLast)
-    {
-        lastFStart = rawFStart;
-        hasLast = true;
-        return rawFStart;
-    }
 
-    float diff = rawFStart - lastFStart;
-
-    if (diff > maxStep)
-        rawFStart = lastFStart + maxStep;
-    else if (diff < -maxStep)
-        rawFStart = lastFStart - maxStep;
-
-    lastFStart = rawFStart;
-    return rawFStart;
-}
 void AudioWaveWindow::paintGL()
 {
     QVector<float> copy[CHANNEL_COUNT];
     QVector<float> filteredCopy[CHANNEL_COUNT];
     QVector<float> phaseCopy[CHANNEL_COUNT];
     float hintCopy[CHANNEL_COUNT]{};
+    double dmcRestartCopy[CHANNEL_COUNT]{};
     quint64 pushedCopy[CHANNEL_COUNT]{};
     {
         QMutexLocker lock(&mutex);
         for (int i = 0; i < CHANNEL_COUNT; i++)
         {
+            if (i >= activeChannelCount || !isChannelShown(i))
+                continue;   // chi lay snapshot cac kenh thuc su duoc ve
             copy[i] = buffers[i];
             filteredCopy[i] = filteredBuffers[i];
             phaseCopy[i] = phaseBuffers[i];
             hintCopy[i] = periodHint[i];
+            dmcRestartCopy[i] = dmcRestartAbs[i];
             pushedCopy[i] = totalPushed[i];
         }
     }
@@ -1228,28 +1638,73 @@ void AudioWaveWindow::paintGL()
 
     int w = width();
     int h = height();
-    int topMargin = 8;
-    int bottomMargin = 8;
+    int topMargin = tileMode ? 0 : 8;
+    int bottomMargin = tileMode ? 0 : 8;
     int drawH = h - topMargin - bottomMargin;
 
     if (w <= 0 || h <= 0) return;
 
-    int panelH = drawH / activeChannelCount;
-
+    // Bố cục dạng lưới 2 cột cho mọi chế độ (NES/VRC6/S5B/MMC5/VRC7/N163).
+    // Chi ve cac kenh duoc phep hien thi (NSF: o chip bo 5 kenh NES). Hang/cot tinh theo
+    // THU TU trong danh sach, con `c` van la chi so kenh that cho moi logic ben duoi.
+    QVector<int> shownChannels;
     for (int c = 0; c < activeChannelCount; c++)
+        if (isChannelShown(c))
+            shownChannels.push_back(c);
+
+    const int shownCount = shownChannels.size();
+    if (shownCount == 0) return;
+
+    int numCols = (tileMode ? tileTwoCols : (shownCount > 1)) ? 2 : 1;
+    const int slotOffset = (tileMode && numCols == 2) ? layoutOffset : 0;
+    int numRows = (shownCount + slotOffset + numCols - 1) / numCols;
+
+    int panelW = w / numCols;
+    int panelH = drawH / numRows;
+
+    // Ô trống (khi số kênh lẻ, ví dụ DMC / VRC6 Saw): vẫn vẽ đủ trục X, trục Y và vạch chia cột
+    // để lưới kín hoàn toàn, chỉ là không có sóng trong ô cuối cùng bên phải.
+    for (int slot = shownCount + slotOffset; (fillTrailing || !tileMode) && slot < numRows * numCols; slot++)
     {
-        int top = topMargin + c * panelH;
+        const int row = slot / numCols;
+        const int col = slot % numCols;
+        const int top = topMargin + row * panelH;
+        const int left = col * panelW;
+
+        p.fillRect(left, top, panelW, panelH, QColor(0, 0, 0));
+        p.setPen(QPen(QColor(70, 70, 70), 1));
+        p.drawLine(left + panelW / 2, top, left + panelW / 2, top + panelH);   // trục Y giữa ô
+        p.drawLine(left, top + panelH / 2, left + panelW, top + panelH / 2);   // trục X giữa ô
+        if (numCols > 1 && col > 0)
+            p.drawLine(left, top, left, top + panelH);                         // vạch chia cột
+    }
+
+    for (int slot = 0; slot < shownCount; slot++)
+    {
+        const int c = shownChannels[slot];
+        int row = (slot + slotOffset) / numCols;
+        int col = (slot + slotOffset) % numCols;
+        int top = topMargin + row * panelH;
+        int left = col * panelW;
         int midY = top + panelH / 2;
 
-        p.fillRect(0, top, w, panelH, QColor(0, 0, 0));
+        p.fillRect(left, top, panelW, panelH, QColor(0, 0, 0));
 
         // Trục dọc (Y-axis) tại điểm trigger - luôn nằm giữa panel
-        int midX = w / 2;
+        int midX = left + panelW / 2;
         p.setPen(QPen(QColor(70, 70, 70), 1));
         p.drawLine(midX, top, midX, top + panelH);
+        // Đường kẻ ngang (trục 0) ở giữa panel của mỗi channel
+        p.drawLine(left, midY, left + panelW, midY);
+        // Đường kẻ dọc phân cách cột (chỉ khi có >1 cột; khối nửa phải 1 cột cũng cần vạch chia bên trái)
+        if ((numCols > 1 && col > 0) || (tileMode && numCols == 1 && layoutOffset == 1))
+        {
+            p.setPen(QPen(QColor(70, 70, 70), 1));
+            p.drawLine(left, top, left, top + panelH);
+        }
         // Tên kênh màu theo channel
         p.setPen(CHANNEL_COLORS[c]);
-        p.drawText(10, top + 18, names[c]);
+        p.drawText(left + 10, top + 18, names[c]);
 
         if (copy[c].size() < 32)
             continue;
@@ -1263,115 +1718,8 @@ void AudioWaveWindow::paintGL()
         // mỗi frame), ở đây chỉ lấy phần snapshot đã lọc sẵn khớp với copy[c].
         QVector<float> filteredBuf = filteredCopy[c];
 
-        // Khuếch đại CỐ ĐỊNH cho riêng phần dương của VRC6 Saw sau filter:
-        // KHÔNG dùng max của cả buffer hiển thị để chuẩn hoá, vì nếu nhiều chu kỳ
-        // trong khung có biên độ đỉnh khác nhau (do note đang decay/pitch rung),
-        // đỉnh nhỏ hơn sẽ bị "nuốt" gần về 0 khi so với đỉnh cao nhất trong khung.
-        // Hệ số cố định đảm bảo MỌI đỉnh đều được khuếch đại cùng 1 tỉ lệ,
-        // không phụ thuộc các chu kỳ lân cận.
-        constexpr float kVrc6SawPosBoost = 0.80f; // chỉnh số này để tăng/giảm độ cao đỉnh
-
-        int visibleSamples = DISPLAY_SAMPLES;
-
-        if (mode == WaveMode::VRC7)
-        {
-            // VRC7 mode chỉ có 6 kênh VRC7, cho mỗi sóng to và dễ nhìn hơn
-            visibleSamples = DISPLAY_SAMPLES / 2;
-        }
-        else if (mode == WaveMode::N163)
-        {
-            visibleSamples = DISPLAY_SAMPLES / 2;
-        }
-        else
-        {
-            // NES Pulse: trigger và zoom vừa phải
-            if (c == 0 || c == 1)
-            {
-                visibleSamples = DISPLAY_SAMPLES / 3;
-            }
-
-            // Noise/DMC: KHÔNG trigger, cho thưa bớt để đỡ rối
-            if (c == 3)
-            {
-                visibleSamples = DISPLAY_SAMPLES * 1.1;
-            }
-            if (c == 4)
-            {
-                // Giảm từ *1.4 (quá lớn so với các kênh khác, nghi ngờ gây chậm FPS)
-                // xuống mức vừa phải, tương tự Noise.
-                visibleSamples = DISPLAY_SAMPLES / 1.4;
-            }
-        }
-
-        // Expansion channels của VRC6/S5B
-        if (mode != WaveMode::VRC7 && mode != WaveMode::N163 && c >= 5)
-        {
-            if (mode == WaveMode::VRC6)
-            {
-                if (c == 5 || c == 6)
-                {
-                    // VRC6 Pulse
-                    visibleSamples = DISPLAY_SAMPLES / 3;
-                }
-                else if (c == 7)
-                {
-
-                    visibleSamples = DISPLAY_SAMPLES / 1.4;
-
-                    const auto& buf = copy[c];
-                    int resetA = -1;
-                    int resetB = -1;
-
-                    // Tìm 2 cạnh rơi/reset gần nhất để ước lượng chu kỳ hiện tại.
-                    for (int i = n - 1; i >= 1; i--)
-                    {
-                        float prev = buf[i - 1];
-                        float cur = buf[i];
-
-                        if ((prev - cur) > 0.06f)
-                        {
-                            if (resetB < 0)
-                                resetB = i;
-                            else
-                            {
-                                resetA = i;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (resetA >= 0 && resetB > resetA)
-                    {
-                        int period = resetB - resetA;
-                        period = std::clamp(period, 8, DISPLAY_SAMPLES * 1);
-
-                        const float minTeeth = 1.0f;
-                        const float maxTeeth = 9.0f;
-
-                        float rawTeeth = float(visibleSamples) / float(period);
-                        float teeth = std::clamp(rawTeeth, minTeeth, maxTeeth);
-
-                        visibleSamples = int(std::round(float(period) * teeth));
-                        visibleSamples = std::clamp(visibleSamples, 32, DISPLAY_SAMPLES * 3);
-
-                        if (visibleSamples > n - 4)
-                            visibleSamples = n - 4;
-                    }
-                }
-            }
-            else if (mode == WaveMode::S5B)
-            {
-                visibleSamples = DISPLAY_SAMPLES / 3;
-            }
-            else if (mode == WaveMode::MMC5)
-            {
-                visibleSamples = DISPLAY_SAMPLES / 3;
-            }
-            else if (mode == WaveMode::VRC7)
-            {
-                visibleSamples = DISPLAY_SAMPLES / 3;
-            }
-        }
+        // Zoom theo kenh: xem visibleSamplesFor().
+        int visibleSamples = visibleSamplesFor(c, n, copy[c]);
 
         if (visibleSamples < 32 || n < visibleSamples + 4)
             continue;
@@ -1392,7 +1740,13 @@ void AudioWaveWindow::paintGL()
 
         bool isNoiseDMC = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && (c == 3 || c == 4));
         bool isVrc6Saw = (mode == WaveMode::VRC6 && c == 7);
+        bool isFdsWave = (mode == WaveMode::FDS && c == 5);
         bool isTriangle = (mode != WaveMode::VRC7 && mode != WaveMode::N163 && c == 2);
+        const bool isSquareLike =
+            (mode != WaveMode::VRC7 && mode != WaveMode::N163 && (c == 0 || c == 1)) ||
+            (mode == WaveMode::VRC6 && (c == 5 || c == 6)) ||
+            (mode == WaveMode::S5B && c >= 5) ||
+            (mode == WaveMode::MMC5 && (c == 5 || c == 6));
 
         if (mode == WaveMode::VRC7)
         {
@@ -1421,6 +1775,42 @@ void AudioWaveWindow::paintGL()
         {
             if (mode == WaveMode::N163)
             {
+                // N163 tự khóa pha ở khối vẽ riêng bên dưới.
+            }
+            else if (isVrc6Saw && kVrc6SawResetLock)
+            {
+                // Khóa thẳng vào cạnh reset: reset nằm đúng trục dọc giữa khung, không cần dời P/2.
+                const float edge = findLockedCenterReset(
+                    copy[c], n, visibleSamples, chanAbsBase, hintCopy[c], genericTrigLock[c]);
+                if (edge >= 0.0f)
+                    fStart = edge - float(visibleSamples) * 0.5f;
+            }
+            else if (isVrc6Saw && kVrc6SawEdgeLock)
+            {
+                // Saw là sóng dạng cố định (1 cạnh dốc lên mỗi chu kỳ rồi reset), nên dùng chung trigger
+                // khóa pha với Pulse/Triangle: mốc neo bằng period thật, re-anchor vào crossing đo được.
+                // Cạnh lên cắt mức giữa nằm ở GIỮA đoạn dốc, còn cạnh reset nằm sau nó nửa chu kỳ.
+                // Dời thêm P/2 để điểm reset vẫn nằm đúng trục dọc giữa khung như bản cũ.
+                const float edge = findLockedCenterEdge(
+                    copy[c], n, visibleSamples, chanAbsBase, hintCopy[c], genericTrigLock[c]);
+                if (edge >= 0.0f)
+                {
+                    float P = genericTrigLock[c].period;
+                    if (!(P >= 8.0f && P <= 8192.0f))
+                        P = hintCopy[c];
+
+                    if (P >= 8.0f && P <= 8192.0f)
+                    {
+                        fStart = edge + P * 0.5f - float(visibleSamples) * 0.5f;
+                        const float maxStart = float(n - visibleSamples - 2);
+                        while (fStart > maxStart && fStart - P >= 0.0f)
+                            fStart -= P;
+                    }
+                    else
+                    {
+                        fStart = edge - float(visibleSamples) * 0.5f;
+                    }
+                }
             }
             else if (isVrc6Saw)
             {
@@ -1441,6 +1831,14 @@ void AudioWaveWindow::paintGL()
                     }
                 }
             }
+            else if (isFdsWave || isTriangle || isSquareLike)
+            {
+                // Pulse (NES/VRC6/MMC5/S5B), Triangle, FDS: cùng một trigger khóa pha (xem findLockedCenterEdge).
+                const float edge = findLockedCenterEdge(
+                    copy[c], n, visibleSamples, chanAbsBase, hintCopy[c], genericTrigLock[c]);
+                if (edge >= 0.0f)
+                    fStart = edge - float(visibleSamples) * 0.5f;
+            }
             else
             {
                 int searchStart = n - visibleSamples - 1;
@@ -1460,569 +1858,34 @@ void AudioWaveWindow::paintGL()
                 }
             }
         }
-        else if (isTriangle)
-        {
-            QVector<float> idxs;
-            QVector<float> slopes;
-            idxs.reserve(128);
-            slopes.reserve(128);
-
-            int scanStart = std::max(1, n - visibleSamples * 4);
-            int scanEnd = n - 2;
-
-            float minSlope = std::max(0.0001f, range * 0.05f);
-
-            for (int si = scanStart + 1; si <= scanEnd; si++)
-            {
-                float prev = copy[c][si - 1];
-                float cur = copy[c][si];
-
-                if (prev < triggerLevel && cur >= triggerLevel)
-                {
-                    float slope = cur - prev;
-
-                    if (slope >= minSlope)
-                    {
-                        float frac = (triggerLevel - prev) / slope;
-                        frac = std::clamp(frac, 0.0f, 1.0f);
-
-                        idxs.push_back(float(si - 1) + frac);
-                        slopes.push_back(slope);
-                    }
-                }
-            }
-
-            qint64 absBase = chanAbsBase;
-            float hint = hintCopy[c];
-
-            bool locked = updateHardPeriodAnchor(
-                genericTrigLock[c],
-                absBase,
-                idxs,
-                slopes,
-                hint,
-                8.0f,
-                8192.0f,
-                0.06f,
-                0.25f
-            );
-
-
-            float halfVisible = float(visibleSamples) * 0.5f;
-
-            if (locked && genericTrigLock[c].period >= 8.0f)
-            {
-                float desiredCenter = float(n) - halfVisible;
-                float edge = predictEdgeNearStart(
-                    genericTrigLock[c],
-                    absBase,
-                    desiredCenter,
-                    halfVisible,
-                    float(n) - halfVisible - 2.0f
-                );
-
-                if (edge >= 0.0f)
-                    fStart = edge - halfVisible;
-            }
-            else if (!idxs.isEmpty())
-            {
-                // Fallback nếu chưa có period hint
-                fStart = idxs.back() - halfVisible;
-            }
-        }
         else if (isNoiseDMC && c == 4)
         {
-            // DMC: nếu $4010 bit 6 (loop) đang bật, hardware TỰ lặp lại sample sau
-            // đúng `sample_length` byte — đây là chu kỳ THẬT, đo được chính xác từ
-            // DMC.h (đếm cycle giữa 2 lần Restart() do loop), gửi qua hintCopy[c].
-            // Ưu tiên tuyệt đối cách này, dùng lại đúng cơ chế hard-anchor như
-            // Triangle/N163 (updateHardPeriodAnchor + predictEdgeNearEnd), KHÔNG
-            // đoán bằng correlation nữa khi đã có period thật.
-            bool dmcHardLocked = false;
-            float dmcHint = hintCopy[c];
-
-            if (dmcHint >= 8.0f && dmcHint <= 8192.0f)
-            {
-                QVector<float> dmcIdxs;
-                QVector<float> dmcSlopes;
-                dmcIdxs.reserve(64);
-                dmcSlopes.reserve(64);
-
-                int scanStart = std::max(1, n - visibleSamples * 4);
-                int scanEnd = n - 2;
-
-                // QUAN TRỌNG: quét trên filteredBuf (đã AC-coupled, mean tiến về 0 thật)
-                // thay vì copy[c] thô. Vì copy[c] là DMC unipolar chưa lọc, "trung điểm
-                // min/max thô" của nó KHÁC với "điểm 0 thật" mà filteredBuf hội tụ về —
-                // dẫn đến điểm neo (anchor) bị lệch khỏi y=0 khi vẽ (vì cái thực sự được
-                // vẽ lên màn hình là filteredBuf, không phải copy[c]). Dùng level = 0.0f
-                // cố định để mốc cắt luôn khớp đúng với gridline 0 khi hiển thị.
-                const QVector<float>& scanBuf = (scanEnd < filteredBuf.size()) ? filteredBuf : copy[c];
-                float dmcLevel = 0.0f;
-                float filteredRange = range; // fallback nếu chưa đủ dữ liệu filtered
-                if (scanBuf.size() >= n)
-                {
-                    float fMin = scanBuf[0], fMax = scanBuf[0];
-                    for (int i = std::max(0, n - visibleSamples * 4); i < n; i++)
-                    {
-                        fMin = std::min(fMin, scanBuf[i]);
-                        fMax = std::max(fMax, scanBuf[i]);
-                    }
-                    filteredRange = fMax - fMin;
-                }
-                float dmcMinSlope = std::max(0.00005f, filteredRange * 0.04f);
-
-                for (int si = scanStart + 1; si <= scanEnd && si < scanBuf.size(); si++)
-                {
-                    float prev = scanBuf[si - 1];
-                    float cur = scanBuf[si];
-                    if (prev < dmcLevel && cur >= dmcLevel)
-                    {
-                        float slope = cur - prev;
-                        if (slope >= dmcMinSlope)
-                        {
-                            float frac = (dmcLevel - prev) / slope;
-                            dmcIdxs.push_back(float(si - 1) + std::clamp(frac, 0.0f, 1.0f));
-                            dmcSlopes.push_back(slope);
-                        }
-                    }
-                }
-
-                bool locked = updateHardPeriodAnchor(
-                    genericTrigLock[c], chanAbsBase, dmcIdxs, dmcSlopes,
-                    dmcHint, 8.0f, 8192.0f, 0.03f // đổi period ratio nhỏ vì đây là số đo cứng, gần như không đổi
-                );
-
-                if (locked && genericTrigLock[c].period >= 8.0f)
-                {
-                    float halfVisible = float(visibleSamples) * 0.5f;
-                    float desiredCenter = float(n) - halfVisible;
-                    float edge = predictEdgeNearStart(
-                        genericTrigLock[c], chanAbsBase, desiredCenter,
-                        halfVisible, float(n) - halfVisible - 2.0f
-                    );
-
-                    if (edge >= 0.0f)
-                    {
-                        float bestEdge = edge;
-                        float minDiff = 1e9f;
-
-                        for (float actualIdx : dmcIdxs) {
-                            float diff = std::abs(actualIdx - edge);
-                            if (diff < minDiff) {
-                                minDiff = diff;
-                                bestEdge = actualIdx;
-                            }
-                        }
-                        // Áp dụng bộ lọc pha (Soft-PLL) thay vì gán cứng để chống trôi/rung nhẹ.
-                        if (minDiff < dmcHint * 0.20f) {
-                            float phaseError = bestEdge - edge;
-
-                            // Tận dụng mảng n163LastTrigger (rảnh ở mode này) làm I-term để bù pha từ từ
-                            n163LastTrigger[c] = n163LastTrigger[c] * 0.95f + phaseError * 0.05f;
-
-                            // Cộng dồn sai số pha đã làm mượt vào dự đoán toán học
-                            edge += n163LastTrigger[c];
-                        }
-                        else {
-                            // Mất lock hoặc lệch quá xa thì reset bù pha
-                            n163LastTrigger[c] = 0.0f;
-                        }
-
-                        fStart = edge - halfVisible;
-                        dmcHardLocked = true;
-                    }
-                }
-            }
-            else
-            {
-                // Sample không loop (one-shot) -> không có gì để hard-lock,
-                // period đo cũ (nếu có từ sample trước) không còn ý nghĩa.
-                genericTrigLock[c] = TrigLockState{};
-            }
-
-            if (!dmcHardLocked)
-            {
-                // Fallback: sample không loop / chưa đo được period thật.
-                // Tìm vị trí trong buffer hiện tại khớp NHẤT (cross-correlation) với
-                // đoạn đã hiển thị ở frame TRƯỚC — chỉ mang tính "đỡ trôi" tạm thời,
-                // không chính xác tuyệt đối như nhánh hard-lock ở trên.
-                int defaultStart = std::clamp(n - visibleSamples, 1, std::max(1, n - visibleSamples - 2));
-                int bestStart = defaultStart;
-
-                const QVector<float>& buf = copy[c];
-
-                if (dmcCorrValid[c] && dmcCorrRef[c].size() == visibleSamples && n >= visibleSamples + 2)
-                {
-                    // Giới hạn phạm vi tìm kiếm quanh vị trí mặc định để đỡ tốn tính toán,
-                    // đồng thời tránh nhảy quá xa gây giật hình nếu khớp nhầm đoạn khác.
-                    int searchRadius = std::min(visibleSamples, 800);
-                    int scanLo = std::max(1, defaultStart - searchRadius);
-                    int scanHi = std::min(n - visibleSamples - 2, defaultStart + searchRadius);
-                    if (scanHi < scanLo) scanHi = scanLo;
-
-                    const QVector<float>& ref = dmcCorrRef[c];
-                    float bestScore = -1e18f;
-
-                    // Stride 2 để giảm ~1 nửa chi phí tính, vẫn đủ chính xác để so hình dạng.
-                    for (int s = scanLo; s <= scanHi; s++)
-                    {
-                        float dot = 0.0f;
-                        for (int k = 0; k < visibleSamples; k += 2)
-                            dot += ref[k] * buf[s + k];
-
-                        if (dot > bestScore)
-                        {
-                            bestScore = dot;
-                            bestStart = s;
-                        }
-                    }
-                }
-
-                fStart = float(bestStart);
-                fStart = std::clamp(fStart, 0.0f, float(n - visibleSamples - 2));
-
-                // Lưu lại đoạn vừa chọn làm reference cho frame kế tiếp.
-                dmcCorrRef[c].resize(visibleSamples);
-                for (int k = 0; k < visibleSamples; k++)
-                    dmcCorrRef[c][k] = buf[bestStart + k];
-                dmcCorrValid[c] = true;
-            }
+            // Toan bo logic khoa trigger DMC nam trong findDmcTriggerStart().
+            fStart = findDmcTriggerStart(c, copy[c], filteredBuf, n, visibleSamples,
+                                         hintCopy[c], dmcRestartCopy[c], chanAbsBase, fStart);
         }
+        if ((isFdsWave || isVrc6Saw) && hintCopy[c] < 8.0f)
+            genericTrigLock[c] = TrigLockState{}; // FDS im lặng: nốt sau acquire lại mốc mới
+
         fStart = std::clamp(fStart, 0.0f, float(n - visibleSamples - 2));
 
-        float amp = panelH * 0.45f;
-
-        if (mode == WaveMode::VRC7)
-        {
-            // VRC7 sẽ được normalize theo range từng kênh ở lúc vẽ.
-            // amp này là độ cao thực tế trên panel; tăng ở đây để sóng to hơn mà không clip.
-            amp = panelH * 0.42f;
-        }
-        else if (mode == WaveMode::N163)
-        {
-            // Chừa biên để sóng không chạm trên/dưới
-            amp = panelH * 0.42f;
-        }
-        else
-        {
-            if (c == 0 || c == 1)   amp = panelH * 0.36f;
-            if (c == 2)             amp = panelH * 0.36f;
-            if (c == 3)             amp = panelH * 0.28f;
-            if (c == 4)             amp = panelH * 0.85f;
-            if (c >= 5)
-            {
-                if (mode == WaveMode::VRC6)
-                    amp = (c == 7) ? panelH * 0.80f : panelH * 0.48f;
-                else if (mode == WaveMode::S5B)
-                    amp = panelH * 0.30f;
-                else if (mode == WaveMode::MMC5)
-                    amp = (c == 7) ? panelH * 0.36f : panelH * 0.44f;
-            }
-        }
+        // Bien do ve theo kenh: xem ampFor().
+        float amp = ampFor(c, panelH);
 
         if (mode == WaveMode::N163)
         {
-            int drawPoints = std::max(2, w * 2);
-
-            QPen n163Pen(CHANNEL_COLORS[c]);
-            n163Pen.setWidthF(1.35f);
-            n163Pen.setCapStyle(Qt::RoundCap);
-            n163Pen.setJoinStyle(Qt::RoundJoin);
-            p.setPen(n163Pen);
-
-            // Tìm các rising crossing đủ mạnh trong vùng gần cuối buffer.
-            QVector<float> idxs;
-            QVector<float> slopes;
-            idxs.reserve(128);
-            slopes.reserve(128);
-
-            int scanStart = std::max(1, n - visibleSamples * 4);
-            int scanEnd = n - 2;
-            float minSlope = std::max(0.0001f, range * 0.08f);
-
-            for (int si = scanStart + 1; si <= scanEnd; si++)
-            {
-                float prev = copy[c][si - 1];
-                float cur = copy[c][si];
-
-                if (prev < triggerLevel && cur >= triggerLevel)
-                {
-                    float slope = cur - prev;
-                    if (slope >= minSlope)
-                    {
-                        float frac = (triggerLevel - prev) / slope;
-                        float idx = float(si - 1) + frac;
-                        idxs.push_back(idx);
-                        slopes.push_back(slope);
-                    }
-                }
-            }
-
-            bool drewN163 = false;
-
-            qint64 absBase = (qint64)pushedCopy[c] - (qint64)n;
-            float hint = hintCopy[c];
-
-            // N163 dùng hard anchor thật sự: sau khi acquire cạnh đầu tiên, phase không còn
-            // bị crossing kéo từng frame nữa. Period thật quyết định vị trí chu kỳ.
-            bool hasHardAnchor = updateHardPeriodAnchor(
-                n163TrigLock[c], absBase, idxs, slopes,
-                hint, 8.0f, 8192.0f, 0.055f
-            );
-
-            if (hasHardAnchor && n163TrigLock[c].period >= 8.0f)
-            {
-                float period = n163TrigLock[c].period;
-                float cycleEnd = predictEdgeNearEnd(n163TrigLock[c], absBase, float(n));
-                float cycleStart = cycleEnd - period;
-
-                if (cycleEnd >= 0.0f && cycleStart >= 1.0f && cycleEnd < float(n - 2))
-                {
-                    // Giữ zoom giống visibleSamples cũ: số chu kỳ trên màn hình = visibleSamples / period.
-                    float cyclesAcross = float(visibleSamples) / period;
-                    cyclesAcross = std::clamp(cyclesAcross, 1.0f, 24.0f);
-
-                    if (n163SmoothY[c].size() != drawPoints)
-                    {
-                        n163SmoothY[c].resize(drawPoints);
-                        n163SmoothValid[c] = false;
-                    }
-
-                    QPainterPath n163Path;
-
-                    for (int pi = 0; pi < drawPoints; pi++)
-                    {
-                        float t = float(pi) / float(drawPoints - 1);
-                        // Dịch mốc trigger từ mép trái (t=0) ra ĐÚNG GIỮA (t=0.5) để
-                        // khớp với đường kẻ dọc midX đang vẽ, giống cách Pulse/Triangle
-                        // căn giữa trigger point của chúng.
-                        float tShifted = t - 0.5f;
-                        float phase = std::fmod(tShifted * cyclesAcross, 1.0f);
-                        if (phase < 0.0f)
-                            phase += 1.0f;
-
-                        float fIdx = cycleStart + phase * period;
-                        fIdx = std::clamp(fIdx, 0.0f, float(n - 2));
-
-                        float sample = sampleInterp(filteredBuf, fIdx);
-                        float yTarget = midY - sample * amp;
-
-                        float y = yTarget;
-                        if (n163SmoothValid[c])
-                        {
-                            // Bám nhanh theo frame, không relax chậm;
-                            // mọi điểm X cập nhật cùng lúc, không lệch tick.
-                            y = n163SmoothY[c][pi] * 0.08f + yTarget * 0.92f;
-                        }
-
-                        n163SmoothY[c][pi] = y;
-
-                        float x = t * float(w);
-                        if (pi == 0) n163Path.moveTo(x, y);
-                        else         n163Path.lineTo(x, y);
-                    }
-
-                    n163SmoothValid[c] = true;
-                    p.drawPath(n163Path);
-                    drewN163 = true;
-                }
-            }
-
-            // Fallback cho trường hợp chưa có period hint hợp lệ.
-            if (!drewN163 && !idxs.isEmpty())
-            {
-                float maxP = std::max(float(visibleSamples), hint * 2.0f);
-                float lockedEdge = resolveLockedTrigger(n163TrigLock[c], absBase, idxs, slopes,
-                    hint, 8.0f, maxP, float(n));
-
-                if (lockedEdge >= 0.0f && n163TrigLock[c].period >= 8.0f)
-                {
-                    float period = n163TrigLock[c].period;
-                    float cycleEnd = lockedEdge;
-                    float cycleStart = cycleEnd - period;
-
-                    if (cycleStart >= 1.0f && cycleEnd < float(n - 2))
-                    {
-                        float cyclesAcross = std::clamp(float(visibleSamples) / period, 1.0f, 24.0f);
-
-                        if (n163SmoothY[c].size() != drawPoints)
-                        {
-                            n163SmoothY[c].resize(drawPoints);
-                            n163SmoothValid[c] = false;
-                        }
-
-                        QPainterPath n163Path;
-                        for (int pi = 0; pi < drawPoints; pi++)
-                        {
-                            float t = float(pi) / float(drawPoints - 1);
-                            float tShifted = t - 0.5f;
-                            float phase = std::fmod(tShifted * cyclesAcross, 1.0f);
-                            if (phase < 0.0f)
-                                phase += 1.0f;
-                            float fIdx = std::clamp(cycleStart + phase * period, 0.0f, float(n - 2));
-                            float yTarget = midY - sampleInterp(filteredBuf, fIdx) * amp;
-                            float y = n163SmoothValid[c] ? (n163SmoothY[c][pi] * 0.08f + yTarget * 0.92f) : yTarget;
-                            n163SmoothY[c][pi] = y;
-                            float x = t * float(w);
-                            if (pi == 0) n163Path.moveTo(x, y);
-                            else         n163Path.lineTo(x, y);
-                        }
-                        n163SmoothValid[c] = true;
-                        p.drawPath(n163Path);
-                        drewN163 = true;
-                    }
-                }
-            }
-
-            if (drewN163)
+            // Toan bo logic ve N163 nam trong drawN163Channel().
+            if (drawN163Channel(p, c, left, midY, panelW, amp, copy[c], filteredBuf, phaseCopy[c],
+                                n, visibleSamples, range, triggerLevel, pushedCopy[c], hintCopy[c]))
                 continue;
-
-            if (n163SmoothValid[c] && n163SmoothY[c].size() == drawPoints)
-            {
-                QPainterPath releasePath;
-
-                bool stillVisible = false;
-                const float releaseKeep = 0.72f;
-                const float releaseToCenter = 1.0f - releaseKeep;
-
-                for (int pi = 0; pi < drawPoints; pi++)
-                {
-                    float t = float(pi) / float(drawPoints - 1);
-
-                    float y = n163SmoothY[c][pi] * releaseKeep + float(midY) * releaseToCenter;
-                    n163SmoothY[c][pi] = y;
-
-                    if (std::abs(y - float(midY)) > 0.75f)
-                        stillVisible = true;
-
-                    float x = t * float(w);
-                    if (pi == 0) releasePath.moveTo(x, y);
-                    else         releasePath.lineTo(x, y);
-                }
-
-                p.drawPath(releasePath);
-
-                if (!stillVisible)
-                    n163SmoothValid[c] = false;
-
-                continue;
-            }
-
-            n163SmoothValid[c] = false;
         }
 
-
-        // VRC7 STROBE-CYCLE LOCK:
-        if (false && mode == WaveMode::VRC7)
-        {
-            float cycleStart = 0.0f;
-            float cycleEnd = 0.0f;
-            bool gotCycle = findVrc7LatestCycle(phaseCopy[c], n, visibleSamples, hintCopy[c], cycleStart, cycleEnd);
-
-            if (gotCycle)
-            {
-                float period = cycleEnd - cycleStart;
-                int drawPoints = std::max(2, w * 2);
-
-                int r0 = std::clamp(int(std::floor(cycleStart)) - 2, 0, n - 1);
-                int r1 = std::clamp(int(std::ceil(cycleEnd)) + 2, 0, n - 1);
-
-                float localMin = copy[c][r0];
-                float localMax = copy[c][r0];
-                for (int ri = r0 + 1; ri <= r1; ++ri)
-                {
-                    localMin = std::min(localMin, copy[c][ri]);
-                    localMax = std::max(localMax, copy[c][ri]);
-                }
-
-                float localRange = localMax - localMin;
-                float localCenter = (localMin + localMax) * 0.5f;
-                float localHalf = std::max(localRange * 0.5f, 0.0015f);
-
-                float cyclesAcross = float(visibleSamples) / std::max(period, 1.0f);
-                cyclesAcross = std::clamp(cyclesAcross, 1.0f, 22.0f);
-
-                QPen vrc7Pen(CHANNEL_COLORS[c]);
-                vrc7Pen.setWidthF(2.0f);
-                vrc7Pen.setCapStyle(Qt::RoundCap);
-                vrc7Pen.setJoinStyle(Qt::RoundJoin);
-                p.setPen(vrc7Pen);
-
-                QPainterPath vrc7Path;
-                bool pathStarted = false;
-
-                auto normVrc7 = [&](float s) -> float
-                    {
-                        float v = (s - localCenter) / localHalf;
-                        return std::clamp(v, -1.12f, 1.12f);
-                    };
-                float startSample = sampleInterp(copy[c], std::clamp(cycleStart + 1.0f, 0.0f, float(n - 2)));
-                float endSample = sampleInterp(copy[c], std::clamp(cycleEnd - 1.0f, 0.0f, float(n - 2)));
-                float seamValue = (startSample + endSample) * 0.5f;
-                float seamWidth = std::clamp(6.0f / std::max(period, 1.0f), 0.012f, 0.055f);
-
-                auto smooth01 = [](float x) -> float
-                    {
-                        x = std::clamp(x, 0.0f, 1.0f);
-                        return x * x * (3.0f - 2.0f * x);
-                    };
-
-                for (int pi = 0; pi < drawPoints; ++pi)
-                {
-                    float t = float(pi) / float(drawPoints - 1);
-                    float phase = std::fmod(t * cyclesAcross, 1.0f);
-                    if (phase < 0.0f)
-                        phase += 1.0f;
-
-                    float fIdx = cycleStart + phase * period;
-                    fIdx = std::clamp(fIdx, 0.0f, float(n - 2));
-
-                    float sample = sampleInterp(copy[c], fIdx);
-
-                    if (phase < seamWidth)
-                    {
-                        float a = smooth01(phase / seamWidth);
-                        sample = seamValue * (1.0f - a) + sample * a;
-                    }
-                    else if (phase > 1.0f - seamWidth)
-                    {
-                        float a = smooth01((phase - (1.0f - seamWidth)) / seamWidth);
-                        sample = sample * (1.0f - a) + seamValue * a;
-                    }
-
-                    float x = t * float(w);
-                    float y = midY - normVrc7(sample) * amp;
-
-                    if (!pathStarted)
-                    {
-                        vrc7Path.moveTo(x, y);
-                        pathStarted = true;
-                    }
-                    else
-                    {
-                        vrc7Path.lineTo(x, y);
-                    }
-                }
-
-                if (pathStarted)
-                    p.drawPath(vrc7Path);
-
-                continue;
-            }
-
-        }
-        // Filter chain THẬT lấy từ APU::GetOutputSampleStereo (2 highpass + 1 lowpass,
-        // hệ số 0.996/0.990/0.899). Không tính lại ở đây nữa — dùng chung filteredBuf
-        // (đã lọc liên tục, persistent, tại pushChannels()) để tránh 2 filter instance
-        // riêng biệt cho cùng 1 kênh gây khác pha/khác trạng thái nhau.
+        // VRC6 Saw dùng chung filteredBuf (đã lọc liên tục tại pushChannels()).
         QVector<float> vrc6SawFiltered;
         if (isVrc6Saw)
         {
             vrc6SawFiltered = filteredBuf;
         }
-
-        bool stepWave = false;
 
         QPen pen(CHANNEL_COLORS[c]);
         if (mode == WaveMode::VRC7)
@@ -2031,8 +1894,8 @@ void AudioWaveWindow::paintGL()
             pen.setWidthF(2.0f);
         else
             pen.setWidthF((c == 0 || c == 1 || c >= 5) ? 1.8f : 1.2f);
-        pen.setCapStyle(Qt::RoundCap);
-        pen.setJoinStyle(Qt::RoundJoin);
+        pen.setCapStyle(Qt::FlatCap);     // round cap/join lam stroker sinh them rat nhieu hinh hoc tren duong ~1000 doan
+        pen.setJoinStyle(Qt::BevelJoin);
         p.setPen(pen);
 
         QPainterPath path;
@@ -2044,21 +1907,77 @@ void AudioWaveWindow::paintGL()
 
         auto sampleTriFrozen = [&](float fIdx) -> float
             {
-                int period = triFrozenCycle[c].size();
-                double absPos = double(chanAbsBase) + double(fIdx);
-                double lockPos = double(genericTrigLock[c].lockAbsPos);
-                double rel = std::fmod(absPos - lockPos, double(period));
-                if (rel < 0.0) rel += double(period);
-
-                int i0 = int(rel);
-                int i1 = (i0 + 1) % period;
-                float frac = float(rel - double(i0));
-                return (triFrozenCycle[c][i0] * (1.0f - frac) + triFrozenCycle[c][i1] * frac)
-                    * freezeAmpNow;
+                // GHIM vào giữa khung, giống cycle view: vị trí chỉ phụ thuộc khoảng cách tới
+                // tâm, KHÔNG phụ thuộc thời gian. Bản cũ tính theo vị trí tuyệt đối (chanAbsBase +
+                // fIdx) nên khi tín hiệu ngắt, fStart rơi về mặc định (n - visibleSamples) và
+                // trượt 1 sample mỗi sample -> chu kỳ đóng băng bị cuộn ngang trong lúc mờ dần.
+                const QVector<float>& fc = triFrozenCycle[c];
+                const float P = triFrozenPeriod[c];
+                if (fc.size() < 8 || P < 8.0f)
+                    return 0.0f;
+                float rel = (fIdx - (fStart + float(visibleSamples) * 0.5f)) / P;
+                rel -= std::floor(rel);
+                const float pos = std::min(rel * P, float(fc.size() - 3));
+                return sampleInterp(fc, pos) * freezeAmpNow;
             };
 
-        int drawPoints = (mode == WaveMode::N163) ? w * 3 : w * 2;
-        int triDrawPoints = w * 8;
+        // Cycle view cho sóng vuông + tam giác (xem buildCycleView). Không dùng khi tam giác đang
+        // chạy hiệu ứng freeze riêng, hoặc khi chưa biết period (kênh im lần đầu).
+        bool cycleView = false;
+        float cvRef = 0.0f, cvPeriod = 0.0f, cvCenter = 0.0f;
+        if (kCycleLockedView && (isSquareLike || isTriangle) && !useFrozenCycle && range > 0.02f)
+        {
+            float period = hintCopy[c];
+            if (!(period >= 8.0f && period <= 8192.0f))
+                period = genericTrigLock[c].period; // kênh vừa bị ngắt: dùng period cuối đã biết
+            CycleViewInfo cv = buildCycleView(copy[c], n, period);
+            if (cv.ok)
+            {
+                cycleView = true;
+                cvRef = cv.ref;
+                cvPeriod = cv.period;
+                cvCenter = fStart + float(visibleSamples) * 0.5f; // cạnh được trigger nằm giữa khung
+            }
+        }
+
+        // ---- Release mềm: cập nhật trạng thái theo đuôi buffer ----
+        ReleaseState* rs = nullptr;
+        const bool relEnabled = kSmoothRelease && (isSquareLike || isTriangle) && !cycleView && c < 32;
+        if (relEnabled)
+        {
+            rs = &releaseBanks()[this].ch[c];
+
+            if (useFrozenCycle)
+            {
+                // Tam giác đang chạy hiệu ứng freeze riêng: coi như đã release, tránh fade đúp sau đó.
+                rs->active = true;
+                rs->gain = 0.0f;
+            }
+            else
+            {
+                float relPeriod = hintCopy[c];
+                if (!(relPeriod >= 8.0f && relPeriod <= 8192.0f))
+                    relPeriod = genericTrigLock[c].period;
+
+                const bool silent = tailIsSilent(copy[c], n, relPeriod, range);
+                if (silent)
+                {
+                    if (!rs->active && !rs->cur.isEmpty())
+                    {
+                        rs->active = true;
+                        rs->gain = 1.0f;
+                        rs->snap = rs->cur;
+                    }
+                }
+                else
+                {
+                    rs->active = false;
+                }
+            }
+        }
+
+        int drawPoints = std::max(2, panelW);   // ~1 diem/pixel la du, truoc day 2-3 diem/pixel
+        int triDrawPoints = std::max(2, panelW * 2);
         int currentPoints = isTriangle ? triDrawPoints : drawPoints;
         if (c == 4)
         {
@@ -2068,6 +1987,13 @@ void AudioWaveWindow::paintGL()
                 dmcSmoothValid[c] = false;
             }
         }
+        if (rs && !rs->active)
+        {
+            if (rs->cur.size() != currentPoints)
+                rs->cur = QVector<float>(currentPoints, 0.0f);
+        }
+        const bool releasing = rs && rs->active && rs->snap.size() == currentPoints;
+
         int viewStart = std::clamp(int(fStart), 0, n - 1);
         int viewEnd = std::clamp(int(fStart + visibleSamples), 0, n - 1);
         float fMin = filteredBuf[viewStart];
@@ -2077,6 +2003,19 @@ void AudioWaveWindow::paintGL()
             fMin = std::min(fMin, filteredBuf[i]);
             fMax = std::max(fMax, filteredBuf[i]);
         }
+        if (cycleView)
+        {
+            // Trục giữa lấy từ CHÍNH chu kỳ đang lặp, không lấy từ cả khung (khung cuộn có thể lẫn cũ/mới).
+            const int a = std::clamp(int(cvRef), 0, n - 1);
+            const int b = std::clamp(int(cvRef + cvPeriod) + 1, 0, n - 1);
+            fMin = filteredBuf[a];
+            fMax = fMin;
+            for (int i = a; i <= b; i++)
+            {
+                fMin = std::min(fMin, filteredBuf[i]);
+                fMax = std::max(fMax, filteredBuf[i]);
+            }
+        }
         float fCenter = (fMin + fMax) * 0.5f;
         for (int i = 0; i < currentPoints; i++)
         {
@@ -2084,117 +2023,95 @@ void AudioWaveWindow::paintGL()
 
             if (fIdx < 0 || fIdx >= float(n - 1)) continue;
 
-            float x = float(i) / float(currentPoints - 1) * float(w);
+            float x = left + float(i) / float(currentPoints - 1) * float(panelW);
             float y;
             auto drawSample = [&](float s) -> float
                 {
                     if (mode == WaveMode::VRC7)
                     {
-                        // Auto-gain theo từng kênh VRC7: dùng range thật của buffer hiện tại,
-                        // không hard-clamp ở pushChannels nên đỉnh không còn bị bẹt giả.
                         const float halfRange = std::max(range * 0.5f, 0.0015f);
                         float vrc7 = (s - triggerLevel) / halfRange;
                         return std::clamp(vrc7, -1.18f, 1.18f);
                     }
-                    if (mode == WaveMode::VRC6 && c == 7)
-                    {
-                        if (range > 0.02f)
-                        {
-                            // 1. Đưa sóng về giữa để cân bằng cơ bản
-                            float centered = s - fCenter;
-
-                            // 2. LẬT NGƯỢC sóng (thêm dấu trừ) để cạnh thẳng đứng nhảy lên trên
-                            float inverted = centered;
-
-                            // 3. Tinh chỉnh độ cao để ép bậc thứ 3 dính vào trục 0x
-                            // Biến này tính theo % chiều cao sóng. Bạn có thể thay đổi số 0.10f
-                            // (ví dụ: thử 0.08f, 0.12f, 0.15f) để dịch sóng lên/xuống cho đến khi ưng ý nhất.
-                            float customOffset = range * -0.10f;
-
-                            // Cộng offset sẽ đẩy đồ thị nhích lên trên một chút
-                            return inverted + customOffset;
-                        }
-                        else
-                        {
-                            // Hết tín hiệu: Ghim thẳng tắp về trục x
-                            return 0.0f;
-                        }
-                    }
                     bool isPulseChannel = (c == 0 || c == 1 ||
-                        (mode == WaveMode::VRC6 && (c == 5 || c == 6 || c == 7 )) ||
+                        (mode == WaveMode::VRC6 && (c == 5 || c == 6 || c == 7)) ||
                         (mode == WaveMode::S5B && c >= 5) ||
                         (mode == WaveMode::MMC5 && (c == 5 || c == 6)));
+
+                    if (isVrc6Saw)
+                    {
+                        if (range <= 0.02f)
+                            return 0.0f;
+                        constexpr float kSawGain = 1.3f; // chỉnh to/nhỏ toàn bộ dáng sóng
+                        const float lim = (panelH * 0.5f - 2.0f) / amp; // không cho tràn panel
+                        return std::clamp(s * kSawGain, -lim, lim);
+                    }
 
                     if (isPulseChannel)
                     {
                         if (range > 0.02f)
                         {
-                            // Có tín hiệu: Nhấc đồ thị xuống để đối xứng qua 0
-                            return s - fCenter;
+                            return s;
                         }
                         else
                         {
-                            // Hết tín hiệu: Ghim thẳng tắp về trục x
                             return 0.0f;
                         }
                     }
                     return s;
                 };
 
-            if (stepWave)
+            float s = 0.0f;
+            if (useFrozenCycle)
             {
-                // Step wave: dùng nearest sample (không interpolate)
-                int idx = int(fIdx);
-                idx = std::clamp(idx, 0, n - 1);
-                float sCur = useFrozenCycle ? sampleTriFrozen(fIdx) : filteredBuf[idx];
-                y = midY - drawSample(sCur) * amp;
-
-                if (i == 0) { path.moveTo(x, y); }
-                else
-                {
-                    float prevFIdx = fStart + (float(i - 1) / float(drawPoints - 1)) * float(visibleSamples);
-                    int prevIdx = std::clamp(int(prevFIdx), 0, n - 1);
-                    float sPrev = useFrozenCycle ? sampleTriFrozen(prevFIdx) : filteredBuf[prevIdx];
-                    float prevY = midY - drawSample(sPrev) * amp;
-                    path.lineTo(x, prevY);
-                    path.lineTo(x, y);
-                }
+                s = sampleTriFrozen(fIdx);
             }
-
+            else if (cycleView)
+            {
+                float rel = (fIdx - cvCenter) / cvPeriod;
+                rel -= std::floor(rel);
+                const float pos = cvRef + rel * cvPeriod;
+                s = isTriangle ? sampleInterp(filteredBuf, pos) : sampleLinear(filteredBuf, pos);
+            }
+            else if (mode == WaveMode::VRC6 && c == 7)
+            {
+                s = sampleSawSmooth(vrc6SawFiltered, copy[c], fIdx);
+            }
+            else if (isNoiseDMC && c == 4)
+            {
+                s = sampleLinear(filteredBuf, fIdx);
+            }
+            else if (c == 0 || c == 1 || (mode == WaveMode::VRC6 && c >= 5) || (mode == WaveMode::S5B && c >= 5) || (mode == WaveMode::MMC5 && (c == 5 || c == 6)))
+            {
+                s = sampleLinear(filteredBuf, fIdx);
+            }
             else
             {
-                float s = 0.0f;
-                if (useFrozenCycle)
-                {
-                    s = sampleTriFrozen(fIdx);
-                }
-                else if (mode == WaveMode::VRC6 && c == 7)
-                {
-                    s = sampleSawSmooth(vrc6SawFiltered, copy[c], fIdx);
-                }
-                else if (c == 0 || c == 1 || (mode == WaveMode::VRC6 && c >= 5) || (mode == WaveMode::S5B && c >= 5) || (mode == WaveMode::MMC5 && (c == 5 || c == 6)))
-                {
-                    s = sampleLinear(filteredBuf, fIdx);
-                }
-                else
-                {
-                    s = sampleInterp(filteredBuf, fIdx);
-                }
-                y = midY - drawSample(s) * amp;
-
-
-
-                if (c == 4)
-                {
-                    if (dmcSmoothValid[c])
-                    {
-                        y = dmcSmoothY[c][i] * 0.30f + y * 0.70f;
-                    }
-                    dmcSmoothY[c][i] = y;
-                }
-                if (i == 0) path.moveTo(x, y);
-                else        path.lineTo(x, y);
+                s = sampleInterp(filteredBuf, fIdx);
             }
+            float drawV = drawSample(s);
+            // VRC6: lật ngược sóng (đảo dấu quanh tâm đã căn giữa).
+            if (mode == WaveMode::VRC6 && c >= 5)
+                drawV = drawV;
+            if (rs)
+            {
+                if (releasing)
+                    drawV = rs->snap[i] * rs->gain;    
+                else if (!rs->active && i < rs->cur.size())
+                    rs->cur[i] = drawV;         
+            }
+            y = midY - drawV * amp;
+
+            if (c == 4)
+            {
+                if (dmcSmoothValid[c])
+                {
+                    y = dmcSmoothY[c][i] * 0.10f + y * 0.90f;
+                }
+                dmcSmoothY[c][i] = y;
+            }
+            if (i == 0) path.moveTo(x, y);
+            else        path.lineTo(x, y);
         }
         if (c == 4)
         {
@@ -2202,6 +2119,13 @@ void AudioWaveWindow::paintGL()
         }
 
         p.drawPath(path);
+
+        if (rs && rs->active && !useFrozenCycle)
+        {
+            rs->gain *= kReleaseDecay;
+            if (rs->gain < 0.004f)
+                rs->gain = 0.0f;
+        }
 
         if (isTriangle && triFreezeActive[c])
         {
@@ -2213,6 +2137,741 @@ void AudioWaveWindow::paintGL()
             }
         }
     }
+}
+
+// =====================================================================================
+// DMC: khoa trigger, 2 tang
+//  1) Co loop: khoa theo moc Restart() phan cung (dmcRestart) + modulo chu ky,
+//     roi bam canh len gan moc.
+//  2) Khong co loop: template-lock bang normalized cross-correlation + snap vao canh len that.
+// Tra ve fStart (toa do buffer cua mep trai khung); khong khoa duoc thi tra lai fStart truyen vao.
+// =====================================================================================
+float AudioWaveWindow::findDmcTriggerStart(int c, const QVector<float>& raw, const QVector<float>& filteredBuf,
+    int n, int visibleSamples, float dmcHint, double dmcRestart,
+    qint64 chanAbsBase, float fStart)
+{
+    bool dmcHardLocked = false;
+
+    // Luu template zero-mean (da tru DC) cho cross-correlation fallback.
+    auto storeDmcRef = [&](const QVector<float>& b, int s)
+        {
+            if (s < 0 || s + visibleSamples > b.size()) return;
+            double m = 0.0;
+            for (int k = 0; k < visibleSamples; k++) m += b[s + k];
+            m /= double(visibleSamples);
+            dmcCorrRef[c].resize(visibleSamples);
+            for (int k = 0; k < visibleSamples; k++)
+                dmcCorrRef[c][k] = float(double(b[s + k]) - m);
+            dmcCorrValid[c] = true;
+        };
+
+    if (dmcHint >= 8.0f && dmcHint <= 8192.0f && dmcRestart > -1e17)
+    {
+        const double P = double(dmcHint);
+        const double H = double(visibleSamples) * 0.5;
+        const double nowAbs = double(chanAbsBase) + double(n);
+
+        // Pha hien tai so voi moc Restart() gan nhat, tinh bang modulo thuan tuy.
+        double phase = std::fmod(nowAbs - dmcRestart, P);
+        if (phase < 0.0) phase += P;
+
+        // Vi tri (cuc bo, trong buffer hien tai) cua lan Restart() gan nowAbs nhat.
+        double edgeLocal = (nowAbs - phase) - double(chanAbsBase);
+
+        // Chon canh MUON NHAT ma cua so [edge-H, edge+H] van nam trong buffer
+        // (sample lap theo chu ky P nen chon canh nao hinh cung giong het nhau).
+        const double hi = double(n) - H - 2.0;
+        if (edgeLocal > hi)
+            edgeLocal -= std::ceil((edgeLocal - hi) / P) * P;
+
+        // Tinh chinh: moc Restart() la su kien nap lai DMA, con buoc nhay that o
+        // ngo ra DMC den muon/som hon mot doan (buffer 1 byte + shift register).
+        // Bam vao canh cat truc 0 doc nhat (xem kDmcTriggerRising) quanh moc phan cung, do tren tin hieu da loc + lam muot.
+        // Tin hieu lap theo chu ky P nen vi tri nay on dinh giua cac frame.
+        {
+            // Trigger dung kieu oscilloscope: canh doc nhat cat MUC 0 cua CHINH duong dang ve
+            // (filteredBuf, truc ngang = 0) nen duong cheo dam thang qua giao diem 2 truc.
+            // Do tren ban lam muot (box) de gon +-1 bit cua DPCM khong tao ra nhieu cat gia.
+            // Cua so tim = 1 chu ky P quanh moc Restart() nen lua chon lap lai dung moi chu ky.
+            constexpr float dir = kDmcTriggerRising ? 1.0f : -1.0f;
+            const QVector<float>& fb = filteredBuf;
+            if (fb.size() == n)
+            {
+                const int Ks = std::clamp(int(P / 40.0), 3, 24);
+                const double Rw = P * 0.5;
+                const int lo = std::max(Ks + 2, int(std::ceil(std::max(H, edgeLocal - Rw))));
+                const int hiI = std::min(n - Ks - 3, int(std::floor(std::min(hi, edgeLocal + Rw))));
+                if (hiI > lo)
+                {
+                    QVector<double> ps(n + 1);
+                    ps[0] = 0.0;
+                    for (int i = 0; i < n; i++)
+                        ps[i + 1] = ps[i] + double(fb[i]);
+                    auto sm = [&](int i) -> float
+                        {
+                            const int a = std::max(0, i - Ks);
+                            const int b = std::min(n - 1, i + Ks);
+                            return float((ps[b + 1] - ps[a]) / double(b - a + 1));
+                        };
+
+                    float sMin = sm(lo);
+                    float sMax = sMin;
+                    for (int i = lo; i <= hiI; i++)
+                    {
+                        const float v = sm(i);
+                        sMin = std::min(sMin, v);
+                        sMax = std::max(sMax, v);
+                    }
+                    const float minRise = std::max(1e-5f, (sMax - sMin) * 0.05f);
+
+                    double bestIdx = -1.0;
+                    float bestRise = 0.0f;
+                    for (int i = lo; i <= hiI; i++)
+                    {
+                        const float a = dir * sm(i - 1);
+                        const float b = dir * sm(i);
+                        if (a < 0.0f && b >= 0.0f)
+                        {
+                            const float rise = dir * (sm(i + Ks) - sm(i - 1 - Ks));
+                            if (rise >= minRise && rise > bestRise)
+                            {
+                                bestRise = rise;
+                                bestIdx = double(i - 1) + double(-a / (b - a));
+                            }
+                        }
+                    }
+                    if (bestIdx >= H && bestIdx <= hi)
+                        edgeLocal = bestIdx;
+                }
+            }
+        }
+
+        if (edgeLocal >= H)
+        {
+            fStart = float(edgeLocal - H);
+            dmcHardLocked = true;
+
+            // Giu reference cua fallback luon "tuoi" de luc mat khoa khong nhay
+            // sang mot doan cu khong lien quan.
+            storeDmcRef(raw, std::clamp(int(fStart), 0, std::max(0, n - visibleSamples - 1)));
+        }
+    }
+    else
+    {
+        // Chua co loop / sample one-shot / vua doi $4010-$4013 -> moc cu
+        // khong con nghia ly gi, de cross-correlation fallback tu lo.
+        genericTrigLock[c] = TrigLockState{};
+    }
+
+    if (!dmcHardLocked)
+    {
+        // Template-lock: chon MOT LAN canh len manh nhat lam moc, cac frame sau chi bam
+        // template bang normalized cross-correlation (khong do lai canh moi frame).
+        // On dinh voi song nhieu canh len moi chu ky nhu Sunsoft bass.
+        const QVector<float>& fb = filteredBuf;
+        if (fb.size() == n)
+        {
+            const int H = visibleSamples / 2;
+            const int hiS = n - visibleSamples - 2;              // fStart lon nhat hop le
+            const int loS = std::max(1, hiS - visibleSamples);   // chi xet ~1 khung moi nhat
+            constexpr int STRIDE = 4;
+
+            // Template: tru DC, chuan hoa RMS = 1
+            auto normalizeTpl = [&](QVector<float>& t)
+                {
+                    double m = 0.0;
+                    for (float v : t) m += v;
+                    m /= double(t.size());
+                    double e = 0.0;
+                    for (float& v : t) { v = float(v - m); e += double(v) * v; }
+                    const float inv = float(1.0 / std::sqrt(std::max(e / double(t.size()), 1e-12)));
+                    for (float& v : t) v *= inv;
+                };
+            auto cutTpl = [&](int s, QVector<float>& t)
+                {
+                    t.resize(visibleSamples);
+                    for (int k = 0; k < visibleSamples; ++k) t[k] = fb[s + k];
+                    normalizeTpl(t);
+                };
+
+            // Chon MOT LAN: canh len manh nhat cat truc 0 (hoa thi lay cai moi nhat).
+            // Tra ve toa do buffer cua canh (se nam giua khung), hoac -1.
+            auto findEdge = [&](int loIn, int hiIn, float guess) -> float
+                {
+                    const int Ks = 20; // lam muot co "macro": bo qua gon DPCM nho, chi thay canh lon
+                    const int loC = std::max({ Ks + 2, H, loIn });
+                    const int hiI = std::min({ n - H - 2, n - Ks - 3, hiIn });
+                    if (hiI <= loC) return -1.0f;
+
+                    QVector<double> ps(n + 1);
+                    ps[0] = 0.0;
+                    for (int i = 0; i < n; ++i) ps[i + 1] = ps[i] + double(fb[i]);
+                    auto sm = [&](int i) -> float
+                        {
+                            const int a = std::max(0, i - Ks), b = std::min(n - 1, i + Ks);
+                            return float((ps[b + 1] - ps[a]) / double(b - a + 1));
+                        };
+
+                    QVector<float> cx, cr;
+                    float maxRise = 0.0f;
+                    for (int i = loC; i <= hiI; ++i)
+                    {
+                        const float a = sm(i - 1), b = sm(i);
+                        if (a < 0.0f && b >= 0.0f)
+                        {
+                            // Canh hop le phai LEN DEU ca hai phia diem cat (lay min trai/phai): diem cat nam trong
+                            // gon phang ngay truoc mot canh doc co phia trai ~0 nen bi loai, khong an gian do doc.
+                            const float rise = std::min(sm(i) - sm(i - Ks), sm(i + Ks) - sm(i));
+                            if (rise > 1e-4f)
+                            {
+                                cx.push_back(float(i - 1) + (-a) / (b - a));
+                                cr.push_back(rise);
+                                maxRise = std::max(maxRise, rise);
+                            }
+                        }
+                    }
+                    // Trong cac canh manh ngang nhau (>= 90% canh manh nhat), lay cai gan `guess` nhat.
+                    float bestX = -1.0f, bestD = 1e30f;
+                    for (int k = 0; k < cx.size(); ++k)
+                    {
+                        const float d = std::abs(cx[k] - guess);
+                        if (cr[k] >= maxRise * 0.9f && d < bestD) { bestD = d; bestX = cx[k]; }
+                    }
+                    return bestX;
+                };
+
+            QVector<float>& ref = dmcCorrRef[c];
+            bool locked = false;
+
+            if (dmcCorrValid[c] && ref.size() == visibleSamples && hiS > loS)
+            {
+                int cnt = 0; double rs = 0.0, rss = 0.0;
+                for (int k = 0; k < visibleSamples; k += STRIDE)
+                {
+                    rs += ref[k]; rss += double(ref[k]) * ref[k]; ++cnt;
+                }
+                const double refVar = std::max(rss - rs * rs / double(cnt), 1e-9);
+
+                QVector<float> sc(hiS - loS + 1);
+                float best = -2.0f;
+                for (int s = loS; s <= hiS; ++s)
+                {
+                    double dot = 0.0, sx = 0.0, sxx = 0.0;
+                    for (int k = 0; k < visibleSamples; k += STRIDE)
+                    {
+                        const double x = fb[s + k];
+                        dot += double(ref[k]) * x; sx += x; sxx += x * x;
+                    }
+                    const double varX = std::max(sxx - sx * sx / double(cnt), 1e-9);
+                    const float score = float((dot - rs * sx / double(cnt)) / std::sqrt(varX * refVar));
+                    sc[s - loS] = score;
+                    best = std::max(best, score);
+                }
+
+                if (best >= 0.6f)
+                {
+                    // Cac chu ky giong het nhau -> lay dinh cuc bo MOI NHAT con gan diem tot nhat.
+                    int pick = -1;
+                    for (int i = sc.size() - 1; i >= 0; --i)
+                    {
+                        const float l = (i > 0) ? sc[i - 1] : -2.0f;
+                        const float r = (i + 1 < sc.size()) ? sc[i + 1] : -2.0f;
+                        if (sc[i] >= best - 0.08f && sc[i] >= l && sc[i] >= r) { pick = i; break; }
+                    }
+                    if (pick >= 0)
+                    {
+                        float frac = 0.0f; // noi suy parabol duoi-sample
+                        if (pick > 0 && pick + 1 < sc.size())
+                        {
+                            const float a = sc[pick - 1], b = sc[pick], d = sc[pick + 1];
+                            const float den = a - 2.0f * b + d;
+                            if (den < -1e-6f) frac = std::clamp(0.5f * (a - d) / den, -0.5f, 0.5f);
+                        }
+                        fStart = float(loS + pick) + frac;
+                        locked = true;
+
+                        // Bam lai vao CANH THAT gan tam: correlation chi cho vi tri xap xi, canh do duoc
+                        // moi dam bao duong cheo dam dung giao diem 2 truc va template khong bi troi dan.
+                        {
+                            const float center = fStart + float(H);
+                            const int R = std::clamp(visibleSamples / 24, 16, 64);
+                            const float snapped = findEdge(int(center) - R, int(center) + R, center);
+                            if (snapped >= 0.0f)
+                                fStart = snapped - float(H);
+                        }
+
+                        if (best >= 0.85f) // template theo kip envelope/pitch rat cham
+                        {
+                            QVector<float> cur;
+                            cutTpl(std::clamp(int(std::lround(fStart)), loS, hiS), cur);
+                            for (int k = 0; k < visibleSamples; ++k)
+                                ref[k] = 0.95f * ref[k] + 0.05f * cur[k];
+                            normalizeTpl(ref);
+                        }
+                    }
+                }
+            }
+
+            if (!locked)
+            {
+                const int hiC0 = n - H - 2;
+                const float e = findEdge(hiC0 - visibleSamples * 2, hiC0, float(hiC0));
+                if (e >= 0.0f)
+                {
+                    fStart = e - float(H);
+                    cutTpl(std::clamp(int(std::lround(fStart)), 1, std::max(1, hiS)), ref);
+                    dmcCorrValid[c] = true;
+                }
+                else
+                {
+                    fStart = float(n - visibleSamples);
+                    dmcCorrValid[c] = false;
+                }
+            }
+        }
+    }
+
+    return fStart;
+}
+
+// =====================================================================================
+// N163: ve 1 kenh. Cac tang khoa song (thu tu uu tien):
+//   1) khoa pha bang phase 24-bit THAT cua chip (n163PhaseLock)
+//   2) hard period anchor tren canh len do duoc (updateHardPeriodAnchor)
+//   3) resolveLockedTrigger (chua co period hint hop le)
+// Khong ve duoc thi lam hieu ung release (song tan ve duong giua).
+// Tra ve true = da ve xong kenh nay; false = paintGL ve tiep bang duong ve chung.
+// =====================================================================================
+bool AudioWaveWindow::drawN163Channel(QPainter& p, int c, int left, int midY, int panelW, float amp,
+    const QVector<float>& raw, const QVector<float>& filteredBuf,
+    const QVector<float>& phase, int n, int visibleSamples,
+    float range, float triggerLevel, quint64 pushed, float hint)
+{
+    int drawPoints = std::max(2, panelW);
+
+    QPen n163Pen(CHANNEL_COLORS[c]);
+    n163Pen.setWidthF(1.35f);
+    n163Pen.setCapStyle(Qt::FlatCap);
+    n163Pen.setJoinStyle(Qt::BevelJoin);
+    p.setPen(n163Pen);
+
+    // Tim cac rising crossing du manh trong vung gan cuoi buffer.
+    QVector<float> idxs;
+    QVector<float> slopes;
+    idxs.reserve(128);
+    slopes.reserve(128);
+
+    int scanStart = std::max(1, n - visibleSamples * 4);
+    int scanEnd = n - 2;
+    float minSlope = std::max(0.0001f, range * 0.08f);
+
+    for (int si = scanStart + 1; si <= scanEnd; si++)
+    {
+        float prev = raw[si - 1];
+        float cur = raw[si];
+
+        if (prev < triggerLevel && cur >= triggerLevel)
+        {
+            float slope = cur - prev;
+            if (slope >= minSlope)
+            {
+                float frac = (triggerLevel - prev) / slope;
+                float idx = float(si - 1) + frac;
+                idxs.push_back(idx);
+                slopes.push_back(slope);
+            }
+        }
+    }
+
+    bool drewN163 = false;
+
+    qint64 absBase = (qint64)pushed - (qint64)n;
+
+    // ===== TANG 1 (N163): khoa pha bang phase THAT cua chip =====
+    // Khong do canh tren waveform (wavetable 4-bit tuy y co nhieu canh len moi chu ky).
+    // Moc = dau wavetable suy tu n163PhaseN + period; xem n163PhaseLock().
+    // Khong du dieu kien (chua co phase/period hop le) -> roi xuong duong do canh ben duoi.
+    if (kN163PhaseLock && phase.size() == n && hint >= 8.0f && hint <= 8192.0f)
+    {
+        float wStart = 0.0f, wOffset = 0.0f;
+        if (n163PhaseLock(phase, filteredBuf, n, hint, kN163SnapRisingEdge, wStart, wOffset, n163SnapFrac[c], n163SnapValid[c]))
+        {
+            const float period = hint;
+            const float cyclesAcross = std::clamp(float(visibleSamples) / period, 1.0f, 24.0f);
+
+            if (n163SmoothY[c].size() != drawPoints)
+            {
+                n163SmoothY[c].resize(drawPoints);
+                n163SmoothValid[c] = false;
+            }
+
+            QPainterPath n163Path;
+            for (int pi = 0; pi < drawPoints; pi++)
+            {
+                const float t = float(pi) / float(drawPoints - 1);
+                float ph = std::fmod((t - 0.5f) * cyclesAcross, 1.0f);
+                if (ph < 0.0f)
+                    ph += 1.0f;
+
+                float rel = wOffset + ph * period;
+                rel -= std::floor(rel / period) * period;
+                const float fIdx = std::clamp(wStart + rel, 0.0f, float(n - 2));
+
+                const float yTarget = midY - sampleInterp(filteredBuf, fIdx) * amp;
+                const float y = n163SmoothValid[c]
+                    ? (n163SmoothY[c][pi] * 0.08f + yTarget * 0.92f)
+                    : yTarget;
+                n163SmoothY[c][pi] = y;
+
+                const float x = left + t * float(panelW);
+                if (pi == 0) n163Path.moveTo(x, y);
+                else         n163Path.lineTo(x, y);
+            }
+            n163SmoothValid[c] = true;
+            p.drawPath(n163Path);
+            drewN163 = true;
+        }
+    }
+
+    // TANG 2 (N163, khi tang 1 khong dung duoc): hard anchor tren canh len do duoc --
+    // sau khi acquire canh dau tien, period that quyet dinh vi tri cac chu ky sau.
+    bool hasHardAnchor = updateHardPeriodAnchor(
+        n163TrigLock[c], absBase, idxs, slopes,
+        hint, 8.0f, 8192.0f, 0.055f
+    );
+
+    if (!drewN163 && hasHardAnchor && n163TrigLock[c].period >= 8.0f)
+    {
+        float period = n163TrigLock[c].period;
+        float cycleEnd = predictEdgeNearEnd(n163TrigLock[c], absBase, float(n));
+        float cycleStart = cycleEnd - period;
+
+        if (cycleEnd >= 0.0f && cycleStart >= 1.0f && cycleEnd < float(n - 2))
+        {
+            // Giu zoom giong visibleSamples cu: so chu ky tren man hinh = visibleSamples / period.
+            float cyclesAcross = float(visibleSamples) / period;
+            cyclesAcross = std::clamp(cyclesAcross, 1.0f, 24.0f);
+
+            if (n163SmoothY[c].size() != drawPoints)
+            {
+                n163SmoothY[c].resize(drawPoints);
+                n163SmoothValid[c] = false;
+            }
+
+            QPainterPath n163Path;
+
+            for (int pi = 0; pi < drawPoints; pi++)
+            {
+                float t = float(pi) / float(drawPoints - 1);
+                // Dich moc trigger tu mep trai (t=0) ra DUNG GIUA (t=0.5) de
+                // khop voi duong ke doc midX dang ve, giong cach Pulse/Triangle
+                // can giua trigger point cua chung.
+                float tShifted = t - 0.5f;
+                float ph = std::fmod(tShifted * cyclesAcross, 1.0f);
+                if (ph < 0.0f)
+                    ph += 1.0f;
+
+                float fIdx = cycleStart + ph * period;
+                fIdx = std::clamp(fIdx, 0.0f, float(n - 2));
+
+                float sample = sampleInterp(filteredBuf, fIdx);
+                float yTarget = midY - sample * amp;
+
+                float y = yTarget;
+                if (n163SmoothValid[c])
+                {
+                    // Bam nhanh theo frame, khong relax cham;
+                    // moi diem X cap nhat cung luc, khong lech tick.
+                    y = n163SmoothY[c][pi] * 0.08f + yTarget * 0.92f;
+                }
+
+                n163SmoothY[c][pi] = y;
+
+                float x = left + t * float(panelW);
+                if (pi == 0) n163Path.moveTo(x, y);
+                else         n163Path.lineTo(x, y);
+            }
+
+            n163SmoothValid[c] = true;
+            p.drawPath(n163Path);
+            drewN163 = true;
+        }
+    }
+
+    // Fallback cho truong hop chua co period hint hop le.
+    if (!drewN163 && !idxs.isEmpty())
+    {
+        float maxP = std::max(float(visibleSamples), hint * 2.0f);
+        float lockedEdge = resolveLockedTrigger(n163TrigLock[c], absBase, idxs, slopes,
+            hint, 8.0f, maxP, float(n));
+
+        if (lockedEdge >= 0.0f && n163TrigLock[c].period >= 8.0f)
+        {
+            float period = n163TrigLock[c].period;
+            float cycleEnd = lockedEdge;
+            float cycleStart = cycleEnd - period;
+
+            if (cycleStart >= 1.0f && cycleEnd < float(n - 2))
+            {
+                float cyclesAcross = std::clamp(float(visibleSamples) / period, 1.0f, 24.0f);
+
+                if (n163SmoothY[c].size() != drawPoints)
+                {
+                    n163SmoothY[c].resize(drawPoints);
+                    n163SmoothValid[c] = false;
+                }
+
+                QPainterPath n163Path;
+                for (int pi = 0; pi < drawPoints; pi++)
+                {
+                    float t = float(pi) / float(drawPoints - 1);
+                    float tShifted = t - 0.5f;
+                    float ph = std::fmod(tShifted * cyclesAcross, 1.0f);
+                    if (ph < 0.0f)
+                        ph += 1.0f;
+                    float fIdx = std::clamp(cycleStart + ph * period, 0.0f, float(n - 2));
+                    float yTarget = midY - sampleInterp(filteredBuf, fIdx) * amp;
+                    float y = n163SmoothValid[c] ? (n163SmoothY[c][pi] * 0.08f + yTarget * 0.92f) : yTarget;
+                    n163SmoothY[c][pi] = y;
+                    float x = left + t * float(panelW);
+                    if (pi == 0) n163Path.moveTo(x, y);
+                    else         n163Path.lineTo(x, y);
+                }
+                n163SmoothValid[c] = true;
+                p.drawPath(n163Path);
+                drewN163 = true;
+            }
+        }
+    }
+
+    if (drewN163)
+        return true;
+
+    // Khong ve duoc frame nay: thu ve ve duong giua (release) cho den khi het thay.
+    if (n163SmoothValid[c] && n163SmoothY[c].size() == drawPoints)
+    {
+        QPainterPath releasePath;
+
+        bool stillVisible = false;
+        const float releaseKeep = 0.72f;
+        const float releaseToCenter = 1.0f - releaseKeep;
+
+        for (int pi = 0; pi < drawPoints; pi++)
+        {
+            float t = float(pi) / float(drawPoints - 1);
+
+            float y = n163SmoothY[c][pi] * releaseKeep + float(midY) * releaseToCenter;
+            n163SmoothY[c][pi] = y;
+
+            if (std::abs(y - float(midY)) > 0.75f)
+                stillVisible = true;
+
+            float x = left + t * float(panelW);
+            if (pi == 0) releasePath.moveTo(x, y);
+            else         releasePath.lineTo(x, y);
+        }
+
+        p.drawPath(releasePath);
+
+        if (!stillVisible)
+            n163SmoothValid[c] = false;
+
+        return true;
+    }
+
+    n163SmoothValid[c] = false;
+    return false;   // roi xuong duong ve chung trong paintGL
+}
+
+// =====================================================================================
+// Muc zoom (so sample hien thi) cua tung kenh. Dieu chinh zoom cua mot loai kenh o day.
+// =====================================================================================
+int AudioWaveWindow::visibleSamplesFor(int c, int n, const QVector<float>& raw) const
+{
+    int visibleSamples = DISPLAY_SAMPLES;
+
+    if (mode == WaveMode::VRC7)
+    {
+        // VRC7 mode chi co 6 kenh VRC7, cho moi song to va de nhin hon
+        visibleSamples = DISPLAY_SAMPLES / 2;
+    }
+    else if (mode == WaveMode::N163)
+    {
+        visibleSamples = DISPLAY_SAMPLES / 2;
+    }
+    else
+    {
+        // NES Pulse: trigger va zoom vua phai
+        if (c == 0 || c == 1)
+        {
+            visibleSamples = DISPLAY_SAMPLES / 3;
+        }
+
+        // Noise/DMC: KHONG trigger (Noise), cho thua bot de do roi
+        if (c == 3)
+        {
+            visibleSamples = DISPLAY_SAMPLES * 1.1;
+        }
+        if (c == 4)
+        {
+            visibleSamples = DISPLAY_SAMPLES / 1.4;
+        }
+    }
+
+    // Expansion channels cua VRC6/S5B/MMC5/FDS
+    if (mode != WaveMode::VRC7 && mode != WaveMode::N163 && c >= 5)
+    {
+        if (mode == WaveMode::VRC6)
+        {
+            if (c == 5 || c == 6)
+            {
+                // VRC6 Pulse
+                visibleSamples = DISPLAY_SAMPLES / 3;
+            }
+            else if (c == 7)
+            {
+                // VRC6 Saw: zoom theo so "rang cua" tren khung, uoc luong tu chu ky reset gan nhat.
+                visibleSamples = DISPLAY_SAMPLES / 1.4;
+
+                const auto& buf = raw;
+                int resetA = -1;
+                int resetB = -1;
+
+                // Tim 2 canh roi/reset gan nhat de uoc luong chu ky hien tai.
+                for (int i = n - 1; i >= 1; i--)
+                {
+                    float prev = buf[i - 1];
+                    float cur = buf[i];
+
+                    if ((prev - cur) > 0.06f)
+                    {
+                        if (resetB < 0)
+                            resetB = i;
+                        else
+                        {
+                            resetA = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (resetA >= 0 && resetB > resetA)
+                {
+                    int period = resetB - resetA;
+                    period = std::clamp(period, 8, DISPLAY_SAMPLES * 1);
+
+                    const float minTeeth = 1.0f;
+                    const float maxTeeth = 9.0f;
+
+                    float rawTeeth = float(visibleSamples) / float(period);
+                    float teeth = std::clamp(rawTeeth, minTeeth, maxTeeth);
+
+                    visibleSamples = int(std::round(float(period) * teeth));
+                    visibleSamples = std::clamp(visibleSamples, 32, DISPLAY_SAMPLES * 3);
+
+                    if (visibleSamples > n - 4)
+                        visibleSamples = n - 4;
+                }
+            }
+        }
+        else if (mode == WaveMode::S5B)
+        {
+            visibleSamples = DISPLAY_SAMPLES / 3;
+        }
+        else if (mode == WaveMode::MMC5)
+        {
+            visibleSamples = DISPLAY_SAMPLES / 3;
+        }
+        else if (mode == WaveMode::FDS)
+        {
+            // FDS wave la wavetable 64-step, chu ky ngan -> zoom vua phai
+            // giong VRC6 Pulse/S5B/MMC5 de nhin ro hinh dang song.
+            visibleSamples = DISPLAY_SAMPLES / 3;
+        }
+    }
+
+    return visibleSamples;
+}
+
+// =====================================================================================
+// Bien do ve (pixel) cua tung kenh: he so nhan voi chieu cao o. Chinh do cao song o day.
+// =====================================================================================
+float AudioWaveWindow::ampFor(int c, int panelH) const
+{
+    float amp = panelH * 0.45f;
+
+    if (mode == WaveMode::VRC7)
+    {
+        amp = panelH * 0.20f;
+    }
+    else if (mode == WaveMode::N163)
+    {
+        amp = panelH * 0.35f;
+    }
+    else
+    {
+        if (c == 0 || c == 1)   amp = panelH * 0.30f;
+        if (c == 2)             amp = panelH * 0.30f;
+        if (c == 3)             amp = panelH * 0.15f;
+        if (c == 4)             amp = panelH * 0.30f;
+        if (c >= 5)
+        {
+            if (mode == WaveMode::VRC6)
+                amp = (c == 7) ? panelH * 0.40f : panelH * 0.48f;
+            else if (mode == WaveMode::S5B)
+                amp = panelH * 0.30f;
+            else if (mode == WaveMode::MMC5)
+                amp = (c == 7) ? panelH * 0.30f : panelH * 0.44f;
+            else if (mode == WaveMode::FDS)
+                amp = panelH * 0.42f;
+        }
+    }
+
+    return amp;
+}
+
+bool AudioWaveWindow::isChannelShown(int c) const
+{
+    if (c < rangeFirst || c > rangeLast)
+        return false;
+    // VRC7 / N163 chi co kenh cua chinh chip. Cac mode con lai: kenh 0-4 la NES goc.
+    if (mode == WaveMode::NES || mode == WaveMode::VRC7 || mode == WaveMode::N163)
+        return true;
+    return showNesChannels || c >= 5;
+}
+
+void AudioWaveWindow::setTileLayout(int startCol, bool twoCols, bool fillTrailingCell)
+{
+    tileMode = true;
+    layoutOffset = (startCol > 0) ? 1 : 0;
+    tileTwoCols = twoCols;
+    fillTrailing = fillTrailingCell;
+}
+
+int AudioWaveWindow::totalChannelCount() const
+{
+    int count = 0;
+    for (int c = 0; c < activeChannelCount; c++)
+        if (mode == WaveMode::NES || mode == WaveMode::VRC7 || mode == WaveMode::N163 || showNesChannels || c >= 5)
+            ++count;
+    return count;
+}
+
+int AudioWaveWindow::firstShownChannel() const
+{
+    for (int c = 0; c < activeChannelCount; c++)
+        if (mode == WaveMode::NES || mode == WaveMode::VRC7 || mode == WaveMode::N163 || showNesChannels || c >= 5)
+            return c;
+    return 0;
+}
+
+int AudioWaveWindow::visibleChannelCount() const
+{
+    int count = 0;
+    for (int c = 0; c < activeChannelCount; c++)
+        if (isChannelShown(c))
+            ++count;
+    return count;
 }
 
 void AudioWaveWindow::initializeGL()

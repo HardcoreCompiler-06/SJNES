@@ -1,6 +1,25 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_005.h"
 #include <QString>
 #include <QChar>
+#include <algorithm>
 
 Mapper_005::Mapper_005(uint8_t prgBanks, uint8_t chrBanks)
     : Mapper(prgBanks, chrBanks)
@@ -9,7 +28,8 @@ Mapper_005::Mapper_005(uint8_t prgBanks, uint8_t chrBanks)
 }
 
 Mapper_005::~Mapper_005()
-{}
+{
+}
 
 void Mapper_005::reset()
 {
@@ -19,7 +39,7 @@ void Mapper_005::reset()
     prgRamProtect1 = 0;
     prgRamProtect2 = 0;
     exRamMode = 0;
-    ntMapping = 0x44; 
+    ntMapping = 0x44;
     fillTile = 0;
     fillAttr = 0;
 
@@ -678,8 +698,9 @@ void Mapper_005::ClockAudio()
     for (int i = 0; i < 2; i++)
     {
         MMC5Pulse& p = mmc5Pulse[i];
+        bool chMuted = (i == 0) ? muteMMC5Pulse1 : muteMMC5Pulse2;
 
-        if (!p.enabled || p.timer < 8)
+        if (!p.enabled || p.timer < 8 || chMuted)
         {
             p.sample = 0.0f;
             continue;
@@ -695,7 +716,7 @@ void Mapper_005::ClockAudio()
             p.counter--;
         }
 
-        p.sample = GetPulseOutput(p);
+        p.sample = GetPulseOutput(p) * ((i == 0) ? gainMMC5Pulse1 : gainMMC5Pulse2);
     }
 }
 
@@ -711,7 +732,7 @@ float Mapper_005::GetMMC5Pulse2Sample() const
 
 float Mapper_005::GetMMC5PCMSample() const
 {
-    return mmc5PcmSample;
+    return muteMMC5PCM ? 0.0f : mmc5PcmSample * gainMMC5PCM;
 }
 
 void Mapper_005::GetMMC5DebugChannels(float& pulse1, float& pulse2, float& pcm) const
@@ -724,9 +745,9 @@ void Mapper_005::GetMMC5DebugChannels(float& pulse1, float& pulse2, float& pcm) 
 void Mapper_005::GetMMC5DebugPeriods(float& pulse1, float& pulse2) const
 {
     constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
-    auto calc = [](const MMC5Pulse& p) -> float {
+    auto calc = [](const MMC5Pulse& p, bool chMuted) -> float {
         constexpr float CPU_TO_SAMPLE_LOCAL = 44100.0f / 1789773.0f;
-        if (!p.enabled || p.timer < 8)
+        if (!p.enabled || p.timer < 8 || chMuted)
             return 0.0f;
 
         // MMC5 pulse dùng duty 8 bước, clock theo CPU cycle trong SJNES.
@@ -736,21 +757,21 @@ void Mapper_005::GetMMC5DebugPeriods(float& pulse1, float& pulse2) const
         return samples;
         };
 
-    pulse1 = calc(mmc5Pulse[0]);
-    pulse2 = calc(mmc5Pulse[1]);
+    pulse1 = calc(mmc5Pulse[0], muteMMC5Pulse1);
+    pulse2 = calc(mmc5Pulse[1], muteMMC5Pulse2);
 }
 
 
 void Mapper_005::GetMMC5DebugDuty(float& pulse1, float& pulse2) const
 {
-    auto calc = [](const MMC5Pulse& p) -> float {
-        if (!p.enabled || p.timer < 8)
+    auto calc = [](const MMC5Pulse& p, bool chMuted) -> float {
+        if (!p.enabled || p.timer < 8 || chMuted)
             return -1.0f;
         return float((p.control >> 6) & 0x03);
-    };
+        };
 
-    pulse1 = calc(mmc5Pulse[0]);
-    pulse2 = calc(mmc5Pulse[1]);
+    pulse1 = calc(mmc5Pulse[0], muteMMC5Pulse1);
+    pulse2 = calc(mmc5Pulse[1], muteMMC5Pulse2);
 }
 
 float Mapper_005::GetExpansionAudio()
@@ -760,6 +781,16 @@ float Mapper_005::GetExpansionAudio()
     float pcm = GetMMC5PCMSample();
 
     return (p1 * 0.12f) + (p2 * 0.12f) + (pcm * 0.10f);
+}
+
+void Mapper_005::SetChannelGain(const QString& channelId, float gain)
+{
+    gain = std::clamp(gain, 0.0f, 2.0f);
+
+    if (channelId == "mmc5.pulse1")      gainMMC5Pulse1 = gain;
+    else if (channelId == "mmc5.pulse2") gainMMC5Pulse2 = gain;
+    else if (channelId == "mmc5.pcm")    gainMMC5PCM = gain;
+    // channelId khác không thuộc MMC5 -> bỏ qua
 }
 
 std::string Mapper_005::GetDebugInfo()

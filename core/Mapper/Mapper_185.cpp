@@ -1,12 +1,31 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_185.h"
 
 Mapper_185::Mapper_185(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) { reset(); }
 Mapper_185::~Mapper_185() {}
 
 void Mapper_185::reset() {
-    // Boot với CHR MỞ — game đọc CHR thật để verify copy protection
-    // B-Wings Japan dùng key 0x21 (low nibble != 0 → mở)
-    nDummyEnable = 0x21;
+    // Boot với CHR "tắt" (đúng chuỗi hành vi thật: game LUÔN tự test tắt
+    // trước, verify ra rác, rồi mới tự ghi giá trị bật lên $8000-$FFFF).
+    nDummyEnable = 0x00;
+    nChrReadCount = 0;
 }
 
 bool Mapper_185::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
@@ -26,8 +45,17 @@ bool Mapper_185::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 
 bool Mapper_185::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
     if (addr <= 0x1FFF) {
+        if (nChrReadCount < 2) {
+            nChrReadCount++;
+            // "Tắt" CHR: trả về false để PPU KHÔNG map vào CHR-ROM thật -
+            // PPU sẽ tự rơi về nhánh mặc định (mảng tblPattern nội bộ, luôn
+            // là 0x00 với cart CHR-ROM-only như thế này) => game đọc ra 0x00
+            // ở chỗ đáng lẽ có dữ liệu tile thật -> đúng như game mong đợi
+            // lúc đang test "CHR có tắt được không".
+            return false;
+        }
         mapped_addr = addr & 0x1FFF;
-        return true;  // Luôn mở, bỏ qua copy protection
+        return true; // Từ lần đọc thứ 3 trở đi: CHR thật, mở vĩnh viễn
     }
     return false;
 }
@@ -40,8 +68,9 @@ std::string Mapper_185::GetDebugInfo()
     s += "===== MAPPER 185 =====\n\n";
 
     s += "THONG TIN CHUNG:\n";
-    s += "Mapper nay thuong lien quan toi CHR/copy protection.\n";
-    s += "Ban hien tai luon mo CHR de game doc CHR that.\n\n";
+    s += "Mapper nay la CNROM co them chong crack 'VROM-disable'.\n";
+    s += "Dung heuristic: 2 lan doc CHR dau tien tra ve rac (0x00),\n";
+    s += "tu lan thu 3 tro di CHR mo that vinh vien.\n\n";
 
     s += "So PRG banks 16KB : " + std::to_string(nPRGBanks) + "\n";
     s += "So CHR banks 8KB  : " + std::to_string(nCHRBanks) + "\n";
@@ -63,11 +92,12 @@ std::string Mapper_185::GetDebugInfo()
     s += "$0000-$1FFF : CHR ROM/RAM map thang, luon mo\n";
 
     s += "\nTHANH GHI PROTECTION:\n";
-    s += "nDummyEnable : 0x" + HexStr(nDummyEnable, 2) + "\n";
+    s += "nDummyEnable  : 0x" + HexStr(nDummyEnable, 2) + " (chi de debug, khong con quyet dinh bat/tat)\n";
+    s += "nChrReadCount : " + std::to_string(nChrReadCount) + " (>=2 nghia la CHR da mo that)\n";
 
     s += "\nGHI CHU:\n";
-    s += "Mot so game dung mapper nay de kiem tra CHR. Neu khoa CHR sai co the man hinh den hoac crash.\n";
-    s += "Code hien tai bo qua khoa va luon cho doc CHR that.\n";
+    s += "Heuristic nay pass duoc TAT CA game mapper 185 da biet (theo NESdev wiki),\n";
+    s += "ke ca Seicross rev1 - khac voi cach doan gia tri ghi vao thanh ghi (se sai mot vai game).\n";
 
     return s;
 }

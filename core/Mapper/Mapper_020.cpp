@@ -1,3 +1,24 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * Portions derived from Mesen (https://github.com/SourMesen/Mesen2)
+ * Copyright (c) SourMesen and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+// Portions derived from Mesen (https://github.com/SourMesen/Mesen2), GPL-3.0
 #include "Mapper_020.h"
 #include <QDebug>
 
@@ -42,6 +63,19 @@ void Mapper_020::reset()
     diskIrqPending = false;
 
     mirrorMode = VERTICAL;
+
+    // ---- FDS audio: đưa về trạng thái ban đầu (cần cho NSF đổi track) ----
+    for (int i = 0; i < 64; i++) { waveTable[i] = 0; modTable[i] = 0; }
+    waveWriteEnable = false;
+    waveFreq = 0; waveAccum = 0; wavePos = 0;
+    waveHalt = false; envelopesDisabled = false;
+    volEnvDisable = false; volEnvDirection = false; volEnvSpeed = 0;
+    volGain = 0; envVolCounter = 0;
+    modTableWritePos = 0; modPos = 0; modFreq = 0; modAccum = 0; modHalt = true;
+    modEnvDisable = false; modEnvDirection = false; modEnvSpeed = 0;
+    modCounter = 0; modEnvCounter = 0; modAmplitude = 0;
+    masterVolume = 0; masterEnvSpeed = 0xE8;
+    lpOut = 0.0f;
 }
 
 bool Mapper_020::cpuMapRead(uint16_t /*addr*/, uint32_t& /*mapped_addr*/)
@@ -53,8 +87,12 @@ bool Mapper_020::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 {
     mapped_addr = 0;
 
-    if (addr >= 0x4020 && addr <= 0x4026)
-        qDebug("[FDS] W $%04X = $%02X", addr, data);
+    // ---- FDS Expansion Audio: $4040-$408A ----
+    // Tách biệt hoàn toàn khỏi phần disk regs bên dưới - dùng cờ
+    // soundRegsEnabled ($4023 bit1) riêng, không phụ thuộc diskRegsEnabled.
+    if (addr >= 0x4040 && addr <= 0x408A)
+        return WriteSoundReg(addr, data);
+
 
     // Port từ Mesen::FDS::WriteRegister - $4024-$4026 chỉ có tác dụng khi
     // diskRegsEnabled (Cartridge đã lọc $6000-$FFFF trước khi vào đây, nên
@@ -127,6 +165,14 @@ bool Mapper_020::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 
 bool Mapper_020::cpuReadRegister(uint16_t addr, uint8_t& data)
 {
+    if (addr >= 0xE000 && addr <= 0xFFFF)
+    {
+        data = ReadBios(addr);
+        return true;
+    }
+    if ((addr >= 0x4040 && addr <= 0x407F) || addr == 0x4090 || addr == 0x4092)
+        return ReadSoundReg(addr, data);
+
     if (!diskRegsEnabled || addr > 0x4033)
         return false;
 
@@ -150,7 +196,6 @@ bool Mapper_020::cpuReadRegister(uint16_t addr, uint8_t& data)
         irqTimerPending = false;
         diskIrqPending = false;
 
-        qDebug("[FDS] R $4030 = $%02X (pos=%zu side=%d)", v, diskPosition, currentSide);
         return true;
     }
 
@@ -158,7 +203,6 @@ bool Mapper_020::cpuReadRegister(uint16_t addr, uint8_t& data)
         transferComplete = false;
         diskIrqPending = false;
         data = readDataReg;
-        qDebug("[FDS] R $4031 = $%02X (pos=%zu)", readDataReg, diskPosition);
         return true;
 
     case 0x4032:
@@ -230,6 +274,7 @@ void Mapper_020::irqStep()
     // hiện tượng "overshoot" (vị trí đọc luôn vượt quá xa so với đúng) đã
     // thấy xuyên suốt mọi lần viết lại mapper trước đó.
     ClockDiskTransfer();
+    ClockAudio(); // độc lập hoàn toàn với disk - vẫn chạy dù currentSide < 0 (NSF)
 }
 
 bool Mapper_020::irqState()
@@ -314,6 +359,8 @@ void Mapper_020::ClockDiskTransfer()
         }
         else if (diskData != 0 && !gapEnded)
         {
+            // Byte khác 0 đầu tiên (start mark 0x80): kết thúc gap. Byte này
+            // VẪN được giao cho CPU, chỉ là không bắn IRQ (giống Mesen).
             gapEnded = true;
             needIrq = false;
         }
@@ -328,10 +375,9 @@ void Mapper_020::ClockDiskTransfer()
     }
     else
     {
-        // Write mode: KHÔNG persist ra file .fds thật (chỉ giữ tạm trong
-        // RAM phiên chơi) - xem ghi chú ở $4032 cũ, giờ đơn giản hoá bỏ hẳn
-        // write-protect cứng, theo đúng Mesen (chỉ báo not-writable khi
-        // không có đĩa).
+        // Write mode: ghi vào diskSides trong RAM + đánh dấu diskDirty. Việc lưu ra file
+        // do phía gọi làm qua BuildDiskPatch() (xem Mapper_020.h). Không có write-protect
+        // cứng, theo đúng Mesen (chỉ báo not-writable khi không có đĩa).
         if (!crcControl)
         {
             transferComplete = true;
@@ -361,7 +407,14 @@ void Mapper_020::ClockDiskTransfer()
         // 2 byte do độ trễ tính CRC) - giữ nguyên hành vi để tương thích, dù
         // dữ liệu ghi không persist ra file thật.
         if (diskPosition >= 2 && diskPosition - 2 < side.size())
-            side[diskPosition - 2] = diskData;
+        {
+            uint8_t& dst = side[diskPosition - 2];
+            if (dst != diskData)
+            {
+                dst = diskData;
+                diskDirty = true; // chỉ đánh dấu khi byte thật sự đổi
+            }
+        }
 
         gapEnded = false;
     }
@@ -402,6 +455,8 @@ void Mapper_020::SetDiskSides(std::vector<std::vector<uint8_t>> sides)
     // Lưu THẲNG dữ liệu thô, không tổng hợp gap/marker/CRC gì thêm (khác
     // hoàn toàn thiết kế cũ - xem giải thích ở đầu Mapper_020.h).
     diskSides = std::move(sides);
+    originalSides = diskSides;
+    diskDirty = false;
     currentSide = diskSides.empty() ? -1 : 0;
 
     endOfHead = true;
@@ -412,6 +467,118 @@ void Mapper_020::SetDiskSides(std::vector<std::vector<uint8_t>> sides)
     delay = 0;
     diskPosition = 0;
     crcAccumulator = 0;
+}
+
+// Patch IPS trên dữ liệu các side nối liền nhau (offset = tổng kích thước các side trước + vị trí).
+std::vector<uint8_t> Mapper_020::BuildDiskPatch() const
+{
+    std::vector<uint8_t> out;
+    if (originalSides.size() != diskSides.size())
+        return out;
+
+    auto put24 = [&](size_t v) { out.push_back(uint8_t(v >> 16)); out.push_back(uint8_t(v >> 8)); out.push_back(uint8_t(v)); };
+    auto put16 = [&](size_t v) { out.push_back(uint8_t(v >> 8)); out.push_back(uint8_t(v)); };
+
+    const char* magic = "PATCH";
+    bool any = false;
+    size_t base = 0;
+
+    for (size_t s = 0; s < diskSides.size(); ++s)
+    {
+        const auto& cur = diskSides[s];
+        const auto& org = originalSides[s];
+        if (cur.size() != org.size())
+            return std::vector<uint8_t>(); // kích thước side đổi -> không thể vá bằng IPS an toàn
+
+        size_t i = 0;
+        while (i < cur.size())
+        {
+            if (cur[i] == org[i]) { ++i; continue; }
+
+            size_t start = i;
+            size_t last = i;      // byte khác cuối cùng đã thấy
+            while (i < cur.size() && (i - last) <= 4 && (i - start) < 0xFFFF)
+            {
+                if (cur[i] != org[i]) last = i;
+                ++i;
+            }
+            size_t len = last - start + 1;
+
+            if (!any)
+            {
+                for (int k = 0; k < 5; ++k) out.push_back(uint8_t(magic[k]));
+                any = true;
+            }
+            put24(base + start);
+            put16(len);
+            out.insert(out.end(), cur.begin() + start, cur.begin() + start + len);
+            i = last + 1;
+        }
+        base += cur.size();
+    }
+
+    if (any)
+    {
+        out.push_back('E'); out.push_back('O'); out.push_back('F');
+    }
+    return out;
+}
+
+// Áp IPS lên bản sao; chỉ khi cả patch hợp lệ mới thay vào diskSides (tránh đĩa bị vá dở dang).
+static bool ApplyIpsToSides(std::vector<std::vector<uint8_t>>& sides, const std::vector<uint8_t>& ips)
+{
+    if (ips.size() < 8 || ips[0] != 'P' || ips[1] != 'A' || ips[2] != 'T' || ips[3] != 'C' || ips[4] != 'H')
+        return false;
+
+    auto writeAbs = [&](size_t abs, uint8_t v) -> bool
+        {
+            size_t base = 0;
+            for (auto& side : sides)
+            {
+                if (abs < base + side.size()) { side[abs - base] = v; return true; }
+                base += side.size();
+            }
+            return false;
+        };
+
+    size_t p = 5;
+    while (p + 3 <= ips.size())
+    {
+        if (ips[p] == 'E' && ips[p + 1] == 'O' && ips[p + 2] == 'F')
+            return true;
+
+        if (p + 5 > ips.size()) return false;
+        size_t off = (size_t(ips[p]) << 16) | (size_t(ips[p + 1]) << 8) | ips[p + 2];
+        size_t len = (size_t(ips[p + 3]) << 8) | ips[p + 4];
+        p += 5;
+
+        if (len == 0) // RLE
+        {
+            if (p + 3 > ips.size()) return false;
+            size_t rle = (size_t(ips[p]) << 8) | ips[p + 1];
+            uint8_t v = ips[p + 2];
+            p += 3;
+            for (size_t k = 0; k < rle; ++k)
+                if (!writeAbs(off + k, v)) return false;
+        }
+        else
+        {
+            if (p + len > ips.size()) return false;
+            for (size_t k = 0; k < len; ++k)
+                if (!writeAbs(off + k, ips[p + k])) return false;
+            p += len;
+        }
+    }
+    return false; 
+}
+
+bool Mapper_020::ApplyDiskPatch(const std::vector<uint8_t>& ips)
+{
+    auto work = diskSides;
+    if (!ApplyIpsToSides(work, ips))
+        return false;
+    diskSides = std::move(work);
+    return true;
 }
 
 void Mapper_020::InsertDisk(int sideIndex)
@@ -429,6 +596,263 @@ void Mapper_020::InsertDisk(int sideIndex)
     delay = 0;
     diskPosition = 0;
     crcAccumulator = 0;
+}
+
+// ============================================================================
+// FDS Expansion Audio
+// ============================================================================
+// Port theo NesDev wiki "FDS audio" + đối chiếu Mesen::FdsAudio. Chỉ gate
+// bởi soundRegsEnabled ($4023 bit1) - KHÔNG động vào diskRegsEnabled/
+// currentSide/motorOn, nên NSF (không có đĩa, không có BIOS) vẫn phát được
+// âm thanh FDS bình thường như đã bàn ở phần trước.
+
+bool Mapper_020::WriteSoundReg(uint16_t addr, uint8_t data)
+{
+    if (!soundRegsEnabled)
+        return true; // HW thật: ghi bị bỏ qua khi bit chưa bật, nhưng vẫn "handled"
+
+    if (addr >= 0x4040 && addr <= 0x407F)
+    {
+        if (waveWriteEnable)
+            waveTable[addr - 0x4040] = data & 0x3F;
+        return true;
+    }
+
+    switch (addr)
+    {
+    case 0x4080: // Volume envelope
+        volEnvDisable = (data & 0x80) != 0;
+        volEnvDirection = (data & 0x40) != 0;
+        volEnvSpeed = data & 0x3F;
+        envVolCounter = 8 * (volEnvSpeed + 1) * int32_t(masterEnvSpeed); // ghi $4080 reset timer
+        if (volEnvDisable)
+            volGain = data & 0x3F; // direct: gain = giá trị ghi; envelope sau đó chạy tiếp TỪ gain này
+        return true;
+
+    case 0x4082: // Freq low
+        waveFreq = (waveFreq & 0x0F00) | data;
+        return true;
+
+    case 0x4083: // Freq high + halt + envelope disable
+        waveFreq = (waveFreq & 0x00FF) | (uint16_t(data & 0x0F) << 8);
+        envelopesDisabled = (data & 0x40) != 0;
+        waveHalt = (data & 0x80) != 0;
+        if (waveHalt)
+        {
+            wavePos = 0;
+            waveAccum = 0; // halt reset cả accumulator, không chỉ vị trí
+        }
+        if (envelopesDisabled) // bit6 reset timer của cả 2 envelope
+        {
+            envVolCounter = 8 * (volEnvSpeed + 1) * int32_t(masterEnvSpeed);
+            modEnvCounter = 8 * (modEnvSpeed + 1) * int32_t(masterEnvSpeed);
+        }
+        return true;
+
+    case 0x4084: // Mod envelope
+        modEnvDisable = (data & 0x80) != 0;
+        modEnvDirection = (data & 0x40) != 0;
+        modEnvSpeed = data & 0x3F;
+        modEnvCounter = 8 * (modEnvSpeed + 1) * int32_t(masterEnvSpeed); // ghi $4084 reset timer
+        if (modEnvDisable)
+            modAmplitude = data & 0x3F;
+        return true;
+
+    case 0x4085: // Mod counter direct write
+        modCounter = signExtend7(data);
+        modAccum = 0;
+        return true;
+
+    case 0x4086: // Mod freq low
+        modFreq = (modFreq & 0x0F00) | data;
+        return true;
+
+    case 0x4087: // Mod freq high + halt
+        modFreq = (modFreq & 0x00FF) | (uint16_t(data & 0x0F) << 8);
+        modHalt = (data & 0x80) != 0;
+        if (modHalt) { modAccum = 0; modPos = 0; }
+        return true;
+
+    case 0x4088: // Mod table write (chỉ khi mod halt)
+        if (modHalt)
+        {
+            modTable[modTableWritePos] = data & 0x07;
+            modTable[(modTableWritePos + 1) & 0x3F] = data & 0x07;
+            modTableWritePos = (modTableWritePos + 2) & 0x3F;
+        }
+        return true;
+
+    case 0x4089: // Wave write enable + master volume
+        waveWriteEnable = (data & 0x80) != 0;
+        masterVolume = data & 0x03;
+        return true;
+
+    case 0x408A: // Envelope speed unit
+        masterEnvSpeed = data;
+        return true;
+    }
+
+    return false;
+}
+
+bool Mapper_020::ReadSoundReg(uint16_t addr, uint8_t& data)
+{
+    if (addr >= 0x4040 && addr <= 0x407F)
+    {
+        data = waveTable[addr - 0x4040] & 0x3F;
+        return true;
+    }
+    if (addr == 0x4090)
+    {
+        data = (volGain & 0x3F) | 0x40; // volume gain hiện tại, bit6 luôn set theo HW thật
+        return true;
+    }
+    if (addr == 0x4092)
+    {
+        data = (uint8_t(modAmplitude) & 0x3F) | 0x40; // $4092 = sweep/mod GAIN (không phải mod counter)
+        return true;
+    }
+    return false;
+}
+
+void Mapper_020::ClockAudio()
+{
+    if (!soundRegsEnabled)
+        return;
+
+    // ---- Envelopes: chu ky = 8 * (speed+1) * $408A ----
+    // Wave halt ($4083 bit7) cũng dừng luôn envelope.
+    if (!waveHalt && !envelopesDisabled && masterEnvSpeed != 0)
+    {
+        if (!volEnvDisable && --envVolCounter <= 0)
+        {
+            envVolCounter = 8 * (volEnvSpeed + 1) * int32_t(masterEnvSpeed);
+            if (volEnvDirection) { if (volGain < 32) volGain++; }
+            else { if (volGain > 0) volGain--; }
+        }
+        if (!modEnvDisable && --modEnvCounter <= 0)
+        {
+            modEnvCounter = 8 * (modEnvSpeed + 1) * int32_t(masterEnvSpeed);
+            if (modEnvDirection) { if (modAmplitude < 32) modAmplitude++; }
+            else { if (modAmplitude > 0) modAmplitude--; }
+        }
+    }
+
+    // ---- Modulator: moi lan tran accum doc 1 o bang mod (64 o) ----
+    if (!modHalt && modFreq != 0)
+    {
+        modAccum += modFreq;
+        if (modAccum >= 0x10000)
+        {
+            modAccum &= 0xFFFF;
+            static const int8_t adj[8] = { 0, 1, 2, 4, 0, -4, -2, -1 };
+            uint8_t v = modTable[modPos] & 0x07;
+            modPos = (modPos + 1) & 0x3F;
+            if (v == 4)
+                modCounter = 0;
+            else
+                modCounter = signExtend7(uint32_t(modCounter + adj[v]));
+        }
+    }
+
+    // ---- Wave oscillator, bend theo cong thuc phan cung ----
+    if (!waveHalt && waveFreq != 0)
+    {
+        int32_t temp = modCounter * modAmplitude;
+        int32_t rem = temp & 0x0F;
+        temp >>= 4;
+        if (rem > 0 && (temp & 0x80) == 0)
+            temp += (modCounter < 0) ? -1 : 2;
+        if (temp >= 192) temp -= 256;
+        else if (temp < -64) temp += 256;
+
+        temp = int32_t(waveFreq) * temp;
+        rem = temp & 0x3F;
+        temp >>= 6;
+        if (rem >= 32) temp += 1;
+
+        int32_t effFreq = int32_t(waveFreq) + temp;
+        if (effFreq < 0) effFreq = 0;
+
+        waveAccum += uint32_t(effFreq);
+        if (waveAccum >= 0x10000)
+        {
+            waveAccum &= 0xFFFF;
+            wavePos = (wavePos + 1) & 0x3F;
+        }
+    }
+
+    // ---- Output + lowpass ~2kHz (tinh moi CPU cycle, khong phu thuoc sample rate) ----
+    static const float masterDiv[4] = { 1.0f, 2.0f / 3.0f, 0.5f, 0.4f };
+    int vol = volGain;
+    if (vol > 32) vol = 32;
+    float x = float((waveTable[wavePos] & 0x3F) - 32) * float(vol) * masterDiv[masterVolume & 3] / 1024.0f;
+    lpOut += (x - lpOut) * 0.0070f; // 1 - exp(-2*pi*2000/1789773)
+}
+
+float Mapper_020::GetExpansionAudio()
+{
+    if (!soundRegsEnabled)
+        return 0.0f;
+    // FDS_OUTPUT_SCALE: hạ mức ra của FDS xuống ngang tầm APU. `lpOut` đang có
+    // biên độ tối đa ±1.0 (wave đầy thang * volume 32 * master 100%), trong khi
+    // APU thường chỉ ở mức ~0..1 cho CẢ 5 kênh cộng lại, nên FDS lấn át NES.
+    // Chỉnh hằng số này theo tai nếu vẫn thấy to/nhỏ (0.25 = điểm khởi đầu).
+    static constexpr float FDS_OUTPUT_SCALE = 0.15f;
+    return lpOut * gainFds * FDS_OUTPUT_SCALE;
+}
+
+void Mapper_020::SetChannelGain(const QString& /*channelId*/, float gain)
+{
+    // Hiện tại FDS chỉ có 1 kênh audio duy nhất (wave + modulator hoà làm
+    // một), nên mọi channelId bắt đầu bằng "fds." đều chỉnh chung 1 gain.
+    // Nếu sau này tách riêng gain cho wave/mod, so sánh channelId ở đây.
+    if (gain < 0.0f) gain = 0.0f;
+    if (gain > 2.0f) gain = 2.0f;
+    gainFds = gain;
+}
+
+void Mapper_020::GetFdsDebugChannels(float& wave)
+{
+    // Kênh im lặng thật sự -> sóng về 0 (đường thẳng giữa), không vẽ tiếp
+    // wavetable "thô" đang quay: soundRegs tắt, wave bị halt ($4083 bit7),
+    // tần số = 0, hoặc đang ở chế độ ghi wavetable ($4089 bit7 giữ kênh lại).
+    if (!soundRegsEnabled || waveHalt || waveFreq == 0 || waveWriteEnable)
+    {
+        wave = 0.0f;
+        return;
+    }
+
+    // Biên độ theo volume hiện tại (envelope hoặc volume trực tiếp, 0..32) để
+    // khi note tắt / volume = 0 thì sóng tắt dần về 0 đúng như tai nghe được.
+    int vol = volGain;
+    if (vol > 32) vol = 32;
+    if (vol < 0) vol = 0;
+
+    // Hình dạng wavetable vẫn giữ nguyên (chuẩn hoá -1..1), chỉ nhân volume.
+    wave = ((float(waveTable[wavePos] & 0x3F) - 32.0f) / 32.0f) * (float(vol) / 32.0f);
+}
+
+void Mapper_020::GetFdsDebugPeriod(float& period, float outputRate)
+{
+    if (outputRate < 8000.0f) outputRate = 44100.0f;
+    const float CPU_TO_SAMPLE = outputRate / 1789773.0f;
+
+    if (waveHalt || waveFreq == 0 || !soundRegsEnabled)
+    {
+        period = 0.0f;
+        return;
+    }
+
+    // 1 chu kỳ sóng đầy đủ = 64 bước wavePos, mỗi bước cần waveAccum tích
+    // luỹ đủ 0x10000 mới nhảy - tổng số CPU cycle cho 1 chu kỳ hoàn chỉnh:
+    float cyclesPerStep = 65536.0f / float(waveFreq);
+    float totalCycles = cyclesPerStep * 64.0f;
+    float samples = totalCycles * CPU_TO_SAMPLE;
+
+    if (samples < 2.0f) samples = 0.0f;
+    if (samples > 8192.0f) samples = 8192.0f;
+    period = samples;
 }
 
 std::string Mapper_020::GetDebugInfo()

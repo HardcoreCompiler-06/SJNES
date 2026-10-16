@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "SettingsDialog.h"
 #include <QLabel>
 #include <QGroupBox>
@@ -176,10 +194,11 @@ QWidget* SettingsDialog::buildAudioTab()
     channelModeLayout->addWidget(stereoRadio);
     layout->addWidget(channelModeBox);
 
-    QGroupBox* qualityBox = new QGroupBox("Chip Emulation (Not Accuracy)", w);
+    QGroupBox* qualityBox = new QGroupBox("Chip Emulation (Not Recommended)", w);
     QVBoxLayout* qualityLayout = new QVBoxLayout(qualityBox);
-    qualityLayout->addWidget(makeSyncedCheckBox("Smooth Triangle", acts.smoothTriangle, qualityBox));
-    qualityLayout->addWidget(makeSyncedCheckBox("Smooth Sawtooth", acts.smoothSaw, qualityBox));
+    qualityLayout->addWidget(makeSyncedCheckBox("Fixed Triangle", acts.smoothTriangle, qualityBox));
+    qualityLayout->addWidget(makeSyncedCheckBox("Fixed Sawtooth", acts.smoothSaw, qualityBox));
+    qualityLayout->addWidget(makeSyncedCheckBox("N163: 8 channels through 1 DAC (hardware-like, noisier)", acts.n163Accurate, qualityBox));
     layout->addWidget(qualityBox);
 
     layout->addWidget(makeSyncedCheckBox("Reduce popping sounds on the DMC channel", acts.dmcReducePopping, w));
@@ -304,4 +323,4 @@ QWidget* SettingsDialog::buildAudioChannelTab()
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     return scroll;
-}
+} 

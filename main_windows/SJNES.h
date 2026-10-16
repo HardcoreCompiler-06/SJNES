@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 #include "APU.h"
 #include <QtWidgets/QMainWindow>
@@ -10,10 +28,12 @@
 #include <memory>
 #include <cstdint>
 #include "AudioWaveWindow.h"
+#include "SettingsDialog.h"
 #include "MapperViewerWindow.h"
 #include "CPU6502.h"
 #include "PPU.h"
 #include "Bus.h"
+#include <QMap>
 #include "Cartridge.h"
 #include "SpriteViewerWindow.h"
 #include <QElapsedTimer>
@@ -28,6 +48,7 @@
 #include "Mapper_085.h"
 #include "Mapper_005.h"
 #include "Mapper_019.h"
+#include "Aviwriter.h"
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 #include <QThread>
@@ -54,12 +75,31 @@ private slots:
     void onAudioReady(std::vector<float> samples, bool stereo);
     void onDebugChannelsReady(std::vector<AudioDebugChannels> dbgBatch);
     void onGameFrameTicked();
+    void onRealGameFrameTicked();
     void onNsfConsoleMessage(QString msg);
     void onNsfTrackChanged(int current, int total);
-    void onNsfExpansionDetected(bool vrc6, bool s5b, bool vrc7, bool mmc5, bool n163);
+    void onNsfExpansionDetected(bool vrc6, bool s5b, bool vrc7, bool mmc5, bool n163, bool fds);
+    void onToggleRecording();
 private:
     EQWindow* eqWindow = nullptr;
+    SettingsDialog* settingsDialog = nullptr;
+
+    QAction* actVRC6Pulse1 = nullptr;
+    QAction* actVRC6Pulse2 = nullptr;
+    QAction* actVRC6Saw = nullptr;
+    QAction* actS5BToneA = nullptr;
+    QAction* actS5BToneB = nullptr;
+    QAction* actS5BToneC = nullptr;
+    // N163: true = 8 kênh ghép qua 1 DAC như chip thật, false = chia trung bình (mặc định)
+    QAction* actN163Accurate = nullptr;
+    QAction* actN163[8] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    QAction* actVRC7[6] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    QAction* actMMC5Pulse1 = nullptr;
+    QAction* actMMC5Pulse2 = nullptr;
+    QAction* actMMC5PCM = nullptr;
+    QAction* actZapperEnabled = nullptr;
     float eqGains[9] = {};
+    QMap<QString, float> channelGains;
     bool eqEnabled = false;
     QThread* emuThread = nullptr;
     EmuWorker* worker = nullptr;
@@ -68,6 +108,7 @@ private:
     void previousNSFTrack();
     void loadNSFFile(const QString& fileName);
     QList<QAction*> recentRomActions;
+
     void addRecentRom(const QString& filePath);
     void updateRecentRomMenu();
     void loadRomFile(const QString& fileName);
@@ -75,6 +116,8 @@ private:
     int videoFpsCounter = 0;
     int gameFpsCounter = 0;
     bool showFpsOverlay = false;
+    bool showDebugOverlay = false;   // F10 lần 2: thêm dòng CPU/PPU debug
+    QString fpsOverlayText;          // 2 dòng VIDEO/GAME FPS, cập nhật mỗi 500ms
     double videoFpsValue = 0.0;
     double gameFpsValue = 0.0;
     QImage lastGameFrame;
@@ -89,7 +132,6 @@ private:
     // Động cơ thời gian UI
     QTimer* timer;
 
-    // Biến đếm nhịp hệ thống (Bí kíp của OLC)
     uint32_t system_clock_counter = 0;
     uint16_t dma_dummy_counter = 0;
 
@@ -105,6 +147,7 @@ private:
     AudioWaveWindow* s5bWaveWindow = nullptr;
     AudioWaveWindow* mmc5WaveWindow = nullptr;
     AudioWaveWindow* n163WaveWindow = nullptr;
+    AudioWaveWindow* fdsWaveWindow = nullptr;
     MapperViewerWindow* mapperViewerWindow = nullptr;
     SpriteViewerWindow* spriteViewerWindow = nullptr;
     PaletteViewerWindow* paletteViewerWindow = nullptr;
@@ -112,10 +155,14 @@ private:
     void enterGameFullScreen();
     void exitGameFullScreen();
     void toggleGameFullScreen();
+    // Cửa sổ game riêng (chỉ chứa khung NES) cho OBS / RTSS - bật tắt bằng F9
+    QWidget* gameWindow = nullptr;
+    void toggleGameWindow();
     bool isPaused = false;
-    bool video60fps = false;
+    bool video60fps = true;
     uint64_t videoFrameCounter = 0;
     void restartAudioSink();
+    bool audioRestartPending = false;
     QMediaDevices audioDevices;
     bool fastForward = false;
     int fastForwardMultiplier = 3;
@@ -131,9 +178,12 @@ private:
     bool saveStateMapper0(const QString& path);
     bool loadStateMapper0(const QString& path);
     bool machinePowered = true;
+    bool nsfUiActive = false;
     void on_actPower_triggered();
-	bool holdturboA = false;
-	bool holdturboB = false;
+    bool holdturboA = false;
+    bool holdturboB = false;
     void on_chkAutoA_toggled(bool checked);
     void on_chkAutoB_toggled(bool checked);
+    AviWriter aviWriter;
+
 };

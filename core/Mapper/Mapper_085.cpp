@@ -1,5 +1,35 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_085.h"
 #include <QString>
+#include <algorithm>
+#include <cmath>
+
+// Quy đổi gain (0.0-1.0) sang số step attenuation CỘNG THÊM vào nibble volume
+// gốc của game. VRC7 volume register: 0 = to nhất, 15 = im lặng gần hoàn
+// toàn, mỗi step ~3dB. gain=1.0 -> 0 step thêm (giữ nguyên), gain=0.0 ->
+// +15 step (ép về im lặng, tương đương cơ chế mute).
+static uint8_t Vrc7GainToExtraAtten(float gain)
+{
+	gain = std::clamp(gain, 0.0f, 1.0f);
+	return uint8_t(std::lround((1.0f - gain) * 15.0f));
+}
 
 Mapper_085::Mapper_085(uint8_t prgBanks, uint8_t chrBanks)
 	: Mapper(prgBanks, chrBanks)
@@ -8,10 +38,19 @@ Mapper_085::Mapper_085(uint8_t prgBanks, uint8_t chrBanks)
 
 	if (opll)
 	{
-		OPLL_setChipType(opll, OPLL_VRC7_TONE);
+		OPLL_setChipType(opll, 1); // 1 = VRC7 (chip type, KHONG phai enum tone)
 		OPLL_resetPatch(opll, OPLL_VRC7_TONE);
 	}
 	reset();
+}
+
+void Mapper_085::SetSampleRate(double hz)
+{
+	if (!opll || hz < 8000.0 || hz == opllSampleRate)
+		return;
+
+	opllSampleRate = hz;
+	OPLL_setRate(opll, uint32_t(hz + 0.5));
 }
 Mapper_085::~Mapper_085()
 {
@@ -45,6 +84,7 @@ void Mapper_085::reset()
 	lastFireCycle = 0;
 
 	audioAddr = 0;
+	audioDisabled = false;
 	for (int i = 0; i < 0x40; i++)
 		audioRegs[i] = 0;
 	lastVrc7Sample = 0.0f;
@@ -60,7 +100,7 @@ void Mapper_085::reset()
 	if (opll)
 	{
 		OPLL_reset(opll);
-		OPLL_setChipType(opll, OPLL_VRC7_TONE);
+		OPLL_setChipType(opll, 1); // 1 = VRC7
 		OPLL_resetPatch(opll, OPLL_VRC7_TONE);
 	}
 }
@@ -111,10 +151,42 @@ bool Mapper_085::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 	{
 		audioRegs[audioAddr] = data;
 
+		uint8_t sendData = data;
+
+		// Thanh ghi Instrument/Volume: $30-$36 (1 thanh ghi / kênh, 6 kênh).
+		// Nếu kênh đang bị mute, ép volume nibble (bit 0-3) về 0x0F (attenuation
+		// tối đa ~45dB) trước khi gửi cho OPLL, giữ nguyên instrument nibble.
+		if (audioAddr >= 0x30 && audioAddr <= 0x36)
+		{
+			int ch = audioAddr - 0x30;
+			if (ch >= 0 && ch < 6)
+			{
+				if (muteChannel[ch])
+					sendData = data | 0x0F;
+				else
+				{
+					uint8_t extraAtten = Vrc7GainToExtraAtten(gainVrc7[ch]);
+					uint8_t nibble = uint8_t(std::min(15, (data & 0x0F) + extraAtten));
+					sendData = (data & 0xF0) | nibble;
+				}
+			}
+		}
+
+		// Thanh ghi Key-on/Sustain/Octave/F-num-hi: $20-$25 (1 thanh ghi / kênh).
+		// Chỉ ép volume KHÔNG đủ vì đó là attenuation (~45dB tối đa), vẫn còn
+		// nghe "lí nhí". Phải ép luôn bit4 (key-on) về 0 để envelope thật sự
+		// release về im lặng hoàn toàn.
+		if (audioAddr >= 0x20 && audioAddr <= 0x25)
+		{
+			int ch = audioAddr - 0x20;
+			if (ch >= 0 && ch < 6 && muteChannel[ch])
+				sendData = data & ~0x10;
+		}
+
 		if (opll)
 		{
 			OPLL_writeIO(opll, 0, audioAddr);
-			OPLL_writeIO(opll, 1, data);
+			OPLL_writeIO(opll, 1, sendData);
 		}
 
 		return true;
@@ -176,6 +248,26 @@ bool Mapper_085::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
 
 	case 0xE000:
 	{
+		// Bit 6: tắt âm thanh mở rộng. Theo nesdev, khi bit này được set thì chip
+		// im lặng và xóa thanh ghi (kể cả LFO tremolo, không kể LFO vibrato).
+		// Ở đây reset cả OPLL (xóa luôn vibrato, lệch rất nhỏ so với máy thật).
+		const bool disable = (data & 0x40) != 0;
+		if (disable && !audioDisabled)
+		{
+			for (int i = 0; i < 0x40; i++)
+				audioRegs[i] = 0;
+			audioAddr = 0;
+			lastVrc7Sample = 0.0f;
+
+			if (opll)
+			{
+				OPLL_reset(opll);
+				OPLL_setChipType(opll, 1);
+				OPLL_resetPatch(opll, OPLL_VRC7_TONE);
+			}
+		}
+		audioDisabled = disable;
+
 		uint8_t m = data & 0x03;
 
 		if (m == 0)
@@ -309,10 +401,77 @@ void Mapper_085::irqClear()
 	irqPending = false;
 }
 
+void Mapper_085::SetVrc7ChannelMuted(int ch, bool muted)
+{
+	if (ch < 0 || ch >= 6)
+		return;
+
+	muteChannel[ch] = muted;
+
+	if (!opll)
+		return;
+
+	// Gửi lại NGAY 2 thanh ghi của kênh này với trạng thái mute mới, không
+	// đợi game tự ghi lại (ví dụ note đang giữ dài, không ghi thêm gì).
+
+	// 1) Volume: ép attenuation tối đa khi mute, khôi phục gốc khi unmute.
+	uint8_t volReg = 0x30 + ch;
+	uint8_t rawVol = audioRegs[volReg];
+	uint8_t sendVol = muted ? (rawVol | 0x0F) : rawVol;
+	OPLL_writeIO(opll, 0, volReg);
+	OPLL_writeIO(opll, 1, sendVol);
+
+	// 2) Key-on: chỉ ép volume không đủ tắt hẳn (attenuation ~45dB max vẫn
+	// nghe "lí nhí"), phải ép luôn key-off để envelope release về 0 thật.
+	// Khi unmute, khôi phục đúng bit key-on gốc (nếu game vẫn đang giữ note).
+	uint8_t keyReg = 0x20 + ch;
+	uint8_t rawKey = audioRegs[keyReg];
+	uint8_t sendKey = muted ? (rawKey & ~0x10) : rawKey;
+	OPLL_writeIO(opll, 0, keyReg);
+	OPLL_writeIO(opll, 1, sendKey);
+}
+
+void Mapper_085::SetChannelGain(const QString& channelId, float gain)
+{
+	// channelId dạng "vrc7.ch1".."vrc7.ch6" -> index 0..5
+	if (!channelId.startsWith("vrc7.ch"))
+		return;
+
+	bool ok = false;
+	int chNumber = channelId.mid(7).toInt(&ok); // "vrc7.ch" dài 7 ký tự
+	if (!ok || chNumber < 1 || chNumber > 6)
+		return;
+
+	int ch = chNumber - 1;
+	gainVrc7[ch] = std::clamp(gain, 0.0f, 1.0f);
+
+	if (!opll || muteChannel[ch])
+		return; // đang mute thì để nguyên nibble ép cứng của mute, gain không cần đụng vào
+
+	// Đẩy lại NGAY thanh ghi Volume với attenuation mới, không đợi game ghi lại
+	// (giống hệt cơ chế SetVrc7ChannelMuted ở trên).
+	uint8_t volReg = 0x30 + ch;
+	uint8_t rawVol = audioRegs[volReg];
+	uint8_t extraAtten = Vrc7GainToExtraAtten(gainVrc7[ch]);
+	uint8_t nibble = uint8_t(std::min(15, (rawVol & 0x0F) + extraAtten));
+	uint8_t sendVol = (rawVol & 0xF0) | nibble;
+
+	OPLL_writeIO(opll, 0, volReg);
+	OPLL_writeIO(opll, 1, sendVol);
+}
+
 float Mapper_085::GetExpansionAudio()
 {
 	if (!opll)
 		return 0.0f;
+
+	if (audioDisabled)
+	{
+		lastVrc7Sample = 0.0f;
+		for (int i = 0; i < 6; i++)
+			lastVrc7Debug[i] = 0.0f;
+		return 0.0f;
+	}
 
 	int sample = OPLL_calc(opll);
 
@@ -324,6 +483,12 @@ float Mapper_085::GetExpansionAudio()
 	// 6 kênh VRC7 riêng
 	for (int i = 0; i < 6; i++)
 	{
+		if (muteChannel[i])
+		{
+			lastVrc7Debug[i] = 0.0f;
+			continue;
+		}
+
 		lastVrc7Debug[i] = float(opll->ch_out[i]) / 32768.0f;
 
 		lastVrc7Debug[i] *= 2.5f;

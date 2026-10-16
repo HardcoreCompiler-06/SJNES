@@ -1,6 +1,25 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_021.h"
 #include <cstdio>
 #include "LogBuffer.h"
+
 Mapper_021::Mapper_021(uint8_t prgBanks, uint8_t chrBanks, VRC4Variant variant)
     : Mapper(prgBanks, chrBanks), nVariant(variant) {
     reset();
@@ -10,6 +29,8 @@ Mapper_021::~Mapper_021() {}
 
 void Mapper_021::reset() {
     nPRGSwapMode = 0;
+    nPRGBankSelect[0] = 0;
+    nPRGBankSelect[1] = 1;
 
     // Reset IRQ
     nIRQReload = 0;
@@ -17,19 +38,46 @@ void Mapper_021::reset() {
     nIRQPrescaler = 341;
     bIRQEnable = false;
     bIRQEnableAfterAck = false;
+    bIRQCycleMode = false;
     bIRQActive = false;
     mirrormode = 0;
-    // Khởi tạo PRG (Chia làm 4 cục, mỗi cục 8KB)
-    pPRGBank[0] = 0;
-    pPRGBank[1] = 0x2000; // 8KB
-    // Hai bank cuối luôn cố định ở cuối ROM lúc khởi động để game không bị crash
-    pPRGBank[2] = (nPRGBanks * 2 - 2) * 0x2000;
-    pPRGBank[3] = (nPRGBanks * 2 - 1) * 0x2000;
 
-    // Khởi tạo CHR (Chia làm 8 cục, mỗi cục 1KB)
+    // Khởi tạo CHR select
     for (int i = 0; i < 8; i++) {
         nCHRBankSelect[i] = 0;
-        pCHRBank[i] = 0;
+    }
+
+    // PRG: 8KB x 4. Bank cuối ($E000) luôn cố định, bank áp chót cố định ở
+    // $C000 (swap mode 0) hoặc $8000 (swap mode 1).
+    updateBanks();
+}
+
+void Mapper_021::updateBanks() {
+    uint32_t nPrg = (uint32_t)nPRGBanks * 2;   // số bank 8KB
+    if (nPrg < 2) nPrg = 2;
+
+    uint32_t last2 = (nPrg - 2) * 0x2000;
+    uint32_t last1 = (nPrg - 1) * 0x2000;
+    uint32_t b0 = (nPRGBankSelect[0] % nPrg) * 0x2000;
+    uint32_t b1 = (nPRGBankSelect[1] % nPrg) * 0x2000;
+
+    if (nPRGSwapMode == 0) {
+        pPRGBank[0] = b0;
+        pPRGBank[1] = b1;
+        pPRGBank[2] = last2;
+    }
+    else {
+        pPRGBank[0] = last2;
+        pPRGBank[1] = b1;
+        pPRGBank[2] = b0;
+    }
+    pPRGBank[3] = last1;
+
+    for (int i = 0; i < 8; i++) {
+        // nCHRShift = 1 cho VRC2a (mapper 22): bit thấp của giá trị bank bị bỏ qua
+        uint32_t sel = (uint32_t)nCHRBankSelect[i] >> nCHRShift;
+        if (nCHRBanks != 0) sel %= ((uint32_t)nCHRBanks * 8);
+        pCHRBank[i] = sel * 0x0400;
     }
 }
 
@@ -42,134 +90,120 @@ bool Mapper_021::cpuMapRead(uint16_t addr, uint32_t& mapped_addr) {
 }
 
 bool Mapper_021::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) {
-    if (addr >= 0x8000) {
-        // Lấy 2 bit latch (A0chip, A1chip) tùy theo variant wiring của board
-        uint16_t a0, a1;
-        if (nVariant == VRC4Variant::VRC4a) {
-            // VRC4a: chip A0 = CPU bit1, chip A1 = CPU bit2   (Wai Wai World 2)
-            a0 = (addr >> 1) & 0x01;
-            a1 = (addr >> 2) & 0x01;
+    if (addr < 0x8000) return false;
+
+    // Decode latch (0..3) trong block. Vì mapper 21 gộp cả VRC4a lẫn VRC4c
+    // mà iNES 1.0 không phân biệt được, ta OR cả 2 kiểu wiring:
+    //   VRC4a: A0 = bit1, A1 = bit2
+    //   VRC4c: A0 = bit6, A1 = bit7
+    uint8_t latch = ((addr >> 1) & 1) | (((addr >> 2) & 1) << 1)
+        | ((addr >> 6) & 1) | (((addr >> 7) & 1) << 1);
+
+    writeReg(addr & 0xF000, latch, data);
+    return false;
+}
+
+// Xử lý ghi thanh ghi sau khi đã decode: block = $8000/$9000/.../$F000,
+// latch = 0..3. Dùng chung cho Mapper_021 và các mapper con (Mapper_025).
+void Mapper_021::writeReg(uint16_t block, uint8_t latch, uint8_t data) {
+    switch (block) {
+    case 0x8000:   // PRG bank 0 ($8000-$8003 đều như nhau)
+        nPRGBankSelect[0] = data & 0x1F;
+        break;
+
+    case 0xA000:   // PRG bank 1 ($A000-$A003 đều như nhau)
+        nPRGBankSelect[1] = data & 0x1F;
+        break;
+
+    case 0x9000:
+        if (latch < 2) {
+            // $9000/$9001: Mirroring
+            switch (data & 0x03) {
+            case 0: mirrormode = (int)MIRROR::VERTICAL;     break;
+            case 1: mirrormode = (int)MIRROR::HORIZONTAL;   break;
+            case 2: mirrormode = (int)MIRROR::ONESCREEN_LO; break;
+            case 3: mirrormode = (int)MIRROR::ONESCREEN_HI; break;
+            }
         }
         else {
-            // VRC4c: chip A0 = CPU bit6, chip A1 = CPU bit7   (Ganbare Goemon Gaiden 2)
-            a0 = (addr >> 6) & 0x01;
-            a1 = (addr >> 7) & 0x01;
+            // $9002/$9003: bit1 = PRG swap mode (bit0 = WRAM enable, bỏ qua)
+            nPRGSwapMode = (data >> 1) & 1;
         }
-        uint16_t latch = (a1 << 1) | a0;              // 0..3, latch trong block
-        uint16_t reg = (addr & 0xF000) | latch;        // Block ($8000/$9000/...) + latch
+        break;
 
-        switch (reg) {
-        case 0x8000: // Thanh ghi Bank 0 (latch 0)
-        case 0x8002: // Trên VRC4a/c, latch 0 và 2 đều là PRG bank 0 (theo tài liệu NesDev)
-            nPRGBankSelect[0] = data & ((nPRGBanks * 2) - 1);
-            break;
-        case 0xA000: // Thanh ghi Bank 1 (latch 0)
-        case 0xA002:
-            nPRGBankSelect[1] = data & ((nPRGBanks * 2) - 1);
-            break;
-        case 0x9000: // Chế độ lật Bank (latch 0)
-        case 0x9002:
-            nPRGSwapMode = (data & 0x02) >> 1;
-            break;
-        case 0x9001: // Mirroring (latch 1)
-        case 0x9003: // Mirroring (latch 3) - một số bản VRC4 lặp lại ở cả 2 latch
-            switch (data & 0x03) {
-            case 0: mirrormode = MIRROR::VERTICAL; break;
-            case 1: mirrormode = MIRROR::HORIZONTAL; break;
-            case 2: mirrormode = MIRROR::ONESCREEN_LO; break;
-            case 3: mirrormode = MIRROR::ONESCREEN_HI; break;
-            }
-            break;
+        // CHR: mỗi block chứa 2 bank 1KB, mỗi bank gồm 2 thanh ghi (nibble thấp/cao)
+        //   latch 0: bank chẵn - nibble thấp (4 bit)
+        //   latch 1: bank chẵn - nibble cao  (5 bit)
+        //   latch 2: bank lẻ   - nibble thấp
+        //   latch 3: bank lẻ   - nibble cao
+    case 0xB000: case 0xC000: case 0xD000: case 0xE000: {
+        int idx = ((block - 0xB000) >> 12) * 2 + (latch >> 1);
+        if (latch & 1)
+            nCHRBankSelect[idx] = (nCHRBankSelect[idx] & 0x00F) | ((uint16_t)(data & 0x1F) << 4);
+        else
+            nCHRBankSelect[idx] = (nCHRBankSelect[idx] & 0x1F0) | (data & 0x0F);
+        break;
+    }
 
-            // =====================================
-            // LẬT BANK CHR (HÌNH ẢNH)
-            // =====================================
-            // Bank CHR 0
-        case 0xB000: nCHRBankSelect[0] = (nCHRBankSelect[0] & 0xF0) | (data & 0x0F); break;
-        case 0xB001: nCHRBankSelect[0] = (nCHRBankSelect[0] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 1
-        case 0xB002: nCHRBankSelect[1] = (nCHRBankSelect[1] & 0xF0) | (data & 0x0F); break;
-        case 0xB003: nCHRBankSelect[1] = (nCHRBankSelect[1] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 2
-        case 0xC000: nCHRBankSelect[2] = (nCHRBankSelect[2] & 0xF0) | (data & 0x0F); break;
-        case 0xC001: nCHRBankSelect[2] = (nCHRBankSelect[2] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 3
-        case 0xC002: nCHRBankSelect[3] = (nCHRBankSelect[3] & 0xF0) | (data & 0x0F); break;
-        case 0xC003: nCHRBankSelect[3] = (nCHRBankSelect[3] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 4
-        case 0xD000: nCHRBankSelect[4] = (nCHRBankSelect[4] & 0xF0) | (data & 0x0F); break;
-        case 0xD001: nCHRBankSelect[4] = (nCHRBankSelect[4] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 5
-        case 0xD002: nCHRBankSelect[5] = (nCHRBankSelect[5] & 0xF0) | (data & 0x0F); break;
-        case 0xD003: nCHRBankSelect[5] = (nCHRBankSelect[5] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 6
-        case 0xE000: nCHRBankSelect[6] = (nCHRBankSelect[6] & 0xF0) | (data & 0x0F); break;
-        case 0xE001: nCHRBankSelect[6] = (nCHRBankSelect[6] & 0x0F) | ((data & 0x0F) << 4); break;
-            // Bank CHR 7
-        case 0xE002: nCHRBankSelect[7] = (nCHRBankSelect[7] & 0xF0) | (data & 0x0F); break;
-        case 0xE003: nCHRBankSelect[7] = (nCHRBankSelect[7] & 0x0F) | ((data & 0x0F) << 4); break;
-
-            // =====================================
-            // BỘ ĐIỀU KHIỂN NGẮT (IRQ)
-            // =====================================
-        case 0xF000:   // Low 4 bits reload
+               // IRQ
+    case 0xF000:
+        switch (latch) {
+        case 0: // Latch low 4 bits
             nIRQReload = (nIRQReload & 0xF0) | (data & 0x0F);
             break;
-        case 0xF001:   // High 4 bits reload
+        case 1: // Latch high 4 bits
             nIRQReload = (nIRQReload & 0x0F) | ((data & 0x0F) << 4);
             break;
-        case 0xF002:
+        case 2: // Control
             bIRQEnableAfterAck = (data & 0x01) != 0;
             bIRQEnable = (data & 0x02) != 0;
+            bIRQCycleMode = (data & 0x04) != 0;
             if (bIRQEnable) {
                 nIRQCounter = nIRQReload;
+                nIRQPrescaler = 341;
             }
-            nIRQPrescaler = 341;
             bIRQActive = false;
             break;
-        case 0xF003: // Xác nhận IRQ (Acknowledge)
+        case 3: // Acknowledge
             bIRQActive = false;
             bIRQEnable = bIRQEnableAfterAck;
             break;
         }
-
-        // --- CHỐT ĐỊA CHỈ PRG SAU KHI LẬT ---
-        if (nPRGSwapMode == 0) {
-            pPRGBank[0] = nPRGBankSelect[0] * 0x2000;
-            pPRGBank[1] = nPRGBankSelect[1] * 0x2000;
-            pPRGBank[2] = (nPRGBanks * 2 - 2) * 0x2000;
-        }
-        else {
-            pPRGBank[0] = (nPRGBanks * 2 - 2) * 0x2000;
-            pPRGBank[1] = nPRGBankSelect[1] * 0x2000;
-            pPRGBank[2] = nPRGBankSelect[0] * 0x2000;
-        }
-
-        // --- CHỐT ĐỊA CHỈ CHR SAU KHI LẬT ---
-        for (int i = 0; i < 8; i++) {
-            pCHRBank[i] = nCHRBankSelect[i] * 0x0400;
-        }
-        return false;
+        break;
     }
-    return false;
+
+    updateBanks();
 }
 
 void Mapper_021::irqStep() {
     if (!bIRQEnable) return;
 
-    nIRQPrescaler--;
-    if (nIRQPrescaler < 0) {
-        nIRQPrescaler += 341;
-
-        if (nIRQCounter == 0x00) {
+    // VRC4: counter đếm LÊN, tràn từ 0xFF thì nạp lại latch và bắn IRQ
+    auto clockCounter = [this]() {
+        if (nIRQCounter == 0xFF) {
             nIRQCounter = nIRQReload;
             bIRQActive = true;
         }
         else {
-            nIRQCounter--;
+            nIRQCounter++;
+        }
+        };
+
+    if (bIRQCycleMode) {
+        // Cycle mode: clock counter mỗi chu kỳ CPU
+        clockCounter();
+    }
+    else {
+        // Scanline mode: prescaler trừ 3 mỗi chu kỳ CPU, khi <= 0 thì cộng 341
+        // và clock counter (341/3 ~ 113.67 chu kỳ CPU = 1 scanline)
+        nIRQPrescaler -= 3;
+        if (nIRQPrescaler <= 0) {
+            nIRQPrescaler += 341;
+            clockCounter();
         }
     }
 }
+
 bool Mapper_021::irqState() {
     return bIRQActive;
 }
@@ -201,6 +235,7 @@ bool Mapper_021::ppuMapWrite(uint16_t addr, uint32_t& mapped_addr) {
 MIRROR Mapper_021::mirror() {
     return (MIRROR)mirrormode;
 }
+
 std::string Mapper_021::GetDebugInfo()
 {
     std::string s;
@@ -216,7 +251,7 @@ std::string Mapper_021::GetDebugInfo()
         }
         };
 
-    s += "===== MAPPER 021 - VRC4 (";
+    s += "===== MAPPER 021 - VRC4 (decode OR ca 4a + 4c; variant tham so = ";
     s += (nVariant == VRC4Variant::VRC4a ? "VRC4a" : "VRC4c");
     s += ") =====\n\n";
 
@@ -273,6 +308,7 @@ std::string Mapper_021::GetDebugInfo()
     s += "\nTHONG TIN IRQ VRC4:\n";
     s += std::string("IRQ Enable          : ") + (bIRQEnable ? "BAT" : "TAT") + "\n";
     s += std::string("IRQ Enable After ACK: ") + (bIRQEnableAfterAck ? "CO" : "KHONG") + "\n";
+    s += std::string("IRQ Mode            : ") + (bIRQCycleMode ? "Cycle" : "Scanline") + "\n";
     s += std::string("IRQ Active          : ") + (bIRQActive ? "CO" : "KHONG") + "\n";
     s += "IRQ Reload          : " + std::to_string(nIRQReload) + "\n";
     s += "IRQ Counter         : " + std::to_string(nIRQCounter) + "\n";
@@ -280,7 +316,7 @@ std::string Mapper_021::GetDebugInfo()
 
     s += "\nGHI CHU:\n";
     s += "Mapper 021 la VRC4. PRG bank 8KB, CHR bank 1KB.\n";
-    s += "IRQ dung prescaler 341 va counter 8-bit de tao ngat scanline.\n";
+    s += "IRQ: counter 8-bit dem LEN, scanline mode dung prescaler tru 3/chu ky CPU.\n";
 
     return s;
-}
+}   

@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 #include "Mapper.h"
 #include <cstdint>
@@ -57,6 +75,18 @@ public:
     void GetMMC5DebugDuty(float& pulse1, float& pulse2) const;
 
     float GetExpansionAudio() override;
+
+    // Mute riêng từng kênh
+    bool muteMMC5Pulse1 = false;
+    bool muteMMC5Pulse2 = false;
+    bool muteMMC5PCM = false;
+
+    // Gain riêng từng kênh (0.0 - 2.0, mặc định 1.0), đi cùng mute ở trên.
+    // Set qua SettingsDialog slider, channelId dạng "mmc5.pulse1"/"mmc5.pulse2"/"mmc5.pcm".
+    float gainMMC5Pulse1 = 1.0f;
+    float gainMMC5Pulse2 = 1.0f;
+    float gainMMC5PCM = 1.0f;
+    void SetChannelGain(const QString& channelId, float gain);
 
     std::string GetDebugInfo() override;
 private:

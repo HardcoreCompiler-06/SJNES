@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_004.h"
 Mapper_004::Mapper_004(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) {
     reset();
@@ -53,7 +71,7 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
         else {
             pRegister[nTargetRegister] = data;
         }
-        
+
         uint32_t num_prg_banks = nPRGBanks * 2;
         uint32_t num_chr_banks = (nCHRBanks == 0) ? 8 : (nCHRBanks * 8);
 
@@ -117,7 +135,7 @@ bool Mapper_004::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data)
     else if (addr >= 0xE000 && addr <= 0xFFFF) {
         if (!(addr & 0x0001)) {
             bIRQEnable = false;
-            bIRQActive = false; 
+            bIRQActive = false;
         }
         else {
             bIRQEnable = true;

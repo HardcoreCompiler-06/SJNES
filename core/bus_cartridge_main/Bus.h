@@ -1,3 +1,59 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/*
+	Derived from olc::NES - System Bus
+	by David Barr (javidx9), OneLoneCoder.com
+	Source: https://github.com/OneLoneCoder/olcNES
+
+	License (OLC-3)
+	~~~~~~~~~~~~~~~
+
+	Copyright 2018-2019 OneLoneCoder.com
+
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions
+	are met:
+
+	1. Redistributions or derivations of source code must retain the above
+	copyright notice, this list of conditions and the following disclaimer.
+
+	2. Redistributions or derivative works in binary form must reproduce
+	the above copyright notice. This list of conditions and the following
+	disclaimer must be reproduced in the documentation and/or other
+	materials provided with the distribution.
+
+	3. Neither the name of the copyright holder nor the names of its
+	contributors may be used to endorse or promote products derived
+	from this software without specific prior written permission.
+
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+	"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+	LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+	A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+	HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+	SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+	LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+	DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+	THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+	(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 #pragma once
 #include <array>
 #include <vector>
@@ -8,6 +64,7 @@
 #include "Cartridge.h"
 #include "CPU6502.h"
 #include <functional>
+#include <QDebug>
 class Bus {
 public:
     Bus() {
@@ -91,6 +148,10 @@ public:
     }
 
     uint8_t controller_state = 0x00;
+    // true nếu CPU đã đọc $4016/$4017 (poll tay cầm) kể từ lần reset cuối.
+    // EmuWorker::runFrame() dùng để phát hiện "lag frame" (game không chạy
+    // logic trong frame đó -> slowdown) và reset về false cuối mỗi frame.
+    bool inputPolledThisFrame = false;
     uint8_t controller_strobe = 0x00;
     uint8_t controller_shift = 0x00;
     uint8_t controller_state2 = 0x00;
@@ -107,6 +168,18 @@ public:
     uint8_t dma_data = 0x00;
     bool dma_dummy = true;
     bool dma_transfer = false;
+    // Tổng số CPU cycle THẬT đã trôi qua kể từ power-on (tăng mỗi khi 1 CPU cycle
+    // trôi qua, BẤT KỂ CPU đang chạy lệnh hay đang bị đóng băng vì DMA) - dùng để
+    // biết parity chẵn/lẻ đúng lúc $4014 được ghi, theo đúng luật NESDev OAM DMA:
+    // 513 cycle nếu DMA bắt đầu ở CPU cycle CHẴN, 514 cycle nếu bắt đầu ở cycle LẺ
+    // (cần thêm 1 cycle "align" trước khi DMA controller thực sự chiếm bus).
+    uint32_t total_cpu_cycles = 0;
+    // Số cycle CPU phải đóng băng cho lần DMA hiện tại (513 hoặc 514), tính lại
+    // mỗi khi $4014 được ghi (xem cpuWrite bên dưới).
+    int dma_cycles_needed = 513;
+    // Số cycle CPU còn phải đứng yên do DMC DMA (mỗi byte sample reader nạp ~4 cycle).
+    // APU::SyncDmcToBus() cộng vào, EmuWorker::runFrame() trừ dần mỗi CPU cycle.
+    int dmc_stall_cycles = 0;
 
     uint32_t system_clock_counter = 0; // Bộ đếm nhịp hệ thống
 
@@ -114,6 +187,10 @@ public:
     // Dùng để giả lập hành vi phần cứng thật khi đọc các port ghi-only
     // hoặc vùng địa chỉ chưa mapped ($4000-$4013, $4014, $4018-$40FF, ...).
     uint8_t open_bus = 0x00;
+
+    // Địa chỉ CPU bus được truy cập gần nhất (cho overlay debug F10, UI đọc để hiển thị)
+    uint16_t last_bus_addr = 0x0000;
+    bool last_bus_write = false;
 
     PPU* ppu = nullptr;
     CPU6502* cpu = nullptr; // Con trỏ CPU
@@ -132,6 +209,8 @@ public:
     }
 
     void cpuWrite(uint16_t addr, uint8_t data) {
+        last_bus_addr = addr;
+        last_bus_write = true;
         // Mọi byte CPU ghi ra đều thực sự đi qua bus dữ liệu -> cập nhật open bus.
         open_bus = data;
 
@@ -176,6 +255,11 @@ public:
             dma_addr = 0x00;
             dma_dummy = true;
             dma_transfer = true;
+            // QUAN TRỌNG: copy OAM PHẢI làm ngay ở đây (tức thời), vì vòng lặp
+            // chạy game THẬT (EmuWorker::runFrame) không hề gọi Bus::clock() -
+            // nó tự đếm dma_dummy_counter riêng chỉ để giữ CPU đứng yên đúng số
+            // cycle, KHÔNG tự copy dữ liệu. Nếu bỏ đoạn copy này, OAM sẽ không
+            // bao giờ được cập nhật -> sprite biến mất/lem hình.
             for (int i = 0; i < 256; i++) {
                 if (ppu != nullptr)
                     ppu->OAM[i] = cpuRead(((uint16_t)dma_page << 8) | i);
@@ -195,6 +279,8 @@ public:
     }
 
     uint8_t cpuRead(uint16_t addr) {
+        last_bus_addr = addr;
+        last_bus_write = false;
         // Mặc định = giá trị open bus hiện tại. Nếu không nhánh nào bên dưới
         // khớp với addr (vùng chưa mapped hoặc port chỉ-ghi như $4000-$4013,
         // $4014, $4018-$40FF), hàm sẽ tự nhiên trả về đúng giá trị open bus
@@ -212,6 +298,10 @@ public:
 
             if (offset < nsfBankData.size())
                 return nsfBankData[offset];
+            qDebug() << "OOB bank read! addr=" << Qt::hex << addr
+                << "bank=" << (int)bank << "offset=" << offset
+                << "size=" << nsfBankData.size();
+            return 0x00;
 
             return 0x00;
         }
@@ -236,6 +326,7 @@ public:
             data = ram[addr & 0x07FF];
         }
         else if (addr == 0x4016) {
+            inputPolledThisFrame = true;
             // tay 1
             if (controller_strobe) {
                 data = (controller_state & 0x80) ? 1 : 0;
@@ -248,6 +339,7 @@ public:
             data |= 0x40;
         }
         else if (addr == 0x4017) {
+            inputPolledThisFrame = true;
             if (zapperConnected) {
                 data = 0x40;
                 data |= zapperTrigger ? 0x10 : 0x00;
@@ -286,15 +378,48 @@ public:
         return data;
     }
 
-    // =========================================================
-    // HÀM CLOCK ĐIỀU PHỐI NHỊP CPU/PPU VÀ DMA CHUẨN XÁC
-    // =========================================================
-    // Trong file Bus.h, sửa lại hàm clock()
+    // !!! CẢNH BÁO: hàm này HIỆN KHÔNG được gọi ở đâu trong luồng chạy game
+    // thật. Vòng lặp thật nằm ở EmuWorker::runFrame(), tự viết lại toàn bộ
+    // logic bên dưới bằng tay (đếm dma_dummy_counter riêng, tự gọi nes_cpu.nmi()
+    // trực tiếp). Nếu sau này có ý định gọi clock() này ở đâu đó, PHẢI xoá bỏ
+    // logic tương ứng trong EmuWorker.cpp trước, kẻo NMI/DMA bị chạy đúp.
+    // Giữ hàm này ở dạng đúng-về-mặt-logic (tham chiếu) nhưng không phải nơi
+    // sửa nếu muốn thay đổi hành vi game thực tế - sửa EmuWorker.cpp thay vào đó.
     void clock() {
         // 1. CPU xử lý trước
         if (system_clock_counter % 3 == 0) {
+            // Mỗi lần vào đây là đúng 1 "CPU cycle" trôi qua trên đồng hồ hệ
+            // thống, BẤT KỂ CPU đang chạy lệnh thật hay đang bị đóng băng vì
+            // DMA - cần đếm đủ để lần ghi $4014 KẾ TIẾP tính đúng parity chẵn/lẻ.
+            total_cpu_cycles++;
+
             if (dma_transfer) {
-                // ... (Giữ nguyên logic DMA cũ của bạn)
+                // ==== OAM DMA cycle-accurate thật (513/514 CPU cycle) ====
+                // Dùng đúng parity của system_clock_counter để xen kẽ
+                // read/write, y hệt luật NESDev: cycle "align" (nếu $4014 bị
+                // ghi vào 1 CPU cycle lẻ) -> rồi 256 cặp (đọc CPU bus / ghi OAM).
+                if (dma_dummy) {
+                    // Cycle "align": chỉ tồn tại nếu DMA bắt đầu ở 1 system tick lẻ.
+                    if (system_clock_counter % 2 == 1) {
+                        dma_dummy = false;
+                    }
+                }
+                else {
+                    if (system_clock_counter % 2 == 0) {
+                        // Cycle chẵn trong chuỗi DMA: ĐỌC 1 byte từ CPU bus
+                        dma_data = cpuRead(((uint16_t)dma_page << 8) | dma_addr);
+                    }
+                    else {
+                        // Cycle lẻ trong chuỗi DMA: GHI byte đó vào OAM
+                        if (ppu != nullptr)
+                            ppu->OAM[dma_addr] = dma_data;
+                        dma_addr++;
+                        if (dma_addr == 0x00) { // đã wrap sau đúng 256 byte
+                            dma_transfer = false;
+                            dma_dummy = true;
+                        }
+                    }
+                }
             }
             else {
                 if (cpu != nullptr) {
@@ -311,6 +436,14 @@ public:
 
         // 3. PPU chạy sau cùng để đảm bảo đồng bộ trạng thái
         if (ppu != nullptr) ppu->Step();
+
+        // [Fix NMI]: PPU chỉ ĐẶT cờ nmi_requested, Bus phải là nơi thực sự
+        // "bấm nút" NMI trên CPU - nếu thiếu bước này NMI sẽ không bao giờ
+        // được CPU nhận, dù cờ VBlank/status vẫn set bình thường.
+        if (ppu != nullptr && ppu->nmi_requested) {
+            ppu->nmi_requested = false;
+            if (cpu != nullptr) cpu->nmi();
+        }
 
         // [Fix IRQ]: Đưa về dạng Level-Triggered chuẩn
         // Xử lý IRQ Level-Triggered:

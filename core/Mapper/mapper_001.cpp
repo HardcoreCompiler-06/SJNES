@@ -1,88 +1,132 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_001.h"
 
-Mapper_001::Mapper_001(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) {
+// Bộ đếm CPU cycle toàn cục, định nghĩa trong EmuWorker.cpp
+extern uint64_t g_cpuCycle;
 
-    reset(); 
+Mapper_001::Mapper_001(uint8_t prgBanks, uint8_t chrBanks) : Mapper(prgBanks, chrBanks) {
+    reset();
 }
 
 Mapper_001::~Mapper_001() {}
 
-void Mapper_001::reset() { 
+void Mapper_001::updateMirror() {
+    switch (nControlRegister & 0x03) {
+    case 0: currentMirror = MIRROR::ONESCREEN_LO; break;
+    case 1: currentMirror = MIRROR::ONESCREEN_HI; break;
+    case 2: currentMirror = MIRROR::VERTICAL;     break;
+    case 3: currentMirror = MIRROR::HORIZONTAL;   break;
+    }
+}
+
+void Mapper_001::updateBanks() {
+    // ---- CHR (chỉ khi là CHR ROM; CHR RAM không đổi bank) ----
+    if (nCHRBanks > 0) {
+        uint32_t total4k = (uint32_t)nCHRBanks * 2;   // nCHRBanks tính theo 8KB
+        if (nControlRegister & 0x10) {                // 2 bank 4KB riêng
+            pCHRBank[0] = (nCHRBankSelect4Lo % total4k) * 0x1000;
+            pCHRBank[1] = (nCHRBankSelect4Hi % total4k) * 0x1000;
+        }
+        else {                                        // 1 bank 8KB (bỏ bit thấp)
+            uint32_t b = (nCHRBankSelect4Lo & 0x1E) % total4k;
+            pCHRBank[0] = b * 0x1000;
+            pCHRBank[1] = pCHRBank[0] + 0x1000;
+        }
+    }
+    else {
+        pCHRBank[0] = 0;
+        pCHRBank[1] = 0x1000;
+    }
+
+    // ---- PRG ----
+    uint32_t n = nPRGBanks ? nPRGBanks : 1;           // tránh chia cho 0
+    uint8_t mode = (nControlRegister >> 2) & 0x03;
+    if (mode <= 1) {                                  // 32KB switch
+        uint32_t b = nPRGBankSelect16Lo & 0x0E;
+        pPRGBank[0] = (b % n) * 0x4000;
+        pPRGBank[1] = ((b + 1) % n) * 0x4000;
+    }
+    else if (mode == 2) {                             // bank đầu cố định ở $8000
+        pPRGBank[0] = 0;
+        pPRGBank[1] = (nPRGBankSelect16Lo % n) * 0x4000;
+    }
+    else {                                            // bank cuối cố định ở $C000
+        pPRGBank[0] = (nPRGBankSelect16Lo % n) * 0x4000;
+        pPRGBank[1] = (n - 1) * 0x4000;
+    }
+}
+
+void Mapper_001::reset() {
     nControlRegister = 0x1C; // Mode mặc định: PRG 16KB cố định ở 0xC000
     nLoadRegister = 0x00;
     nLoadRegisterCount = 0x00;
     nCHRBankSelect4Lo = 0;
     nCHRBankSelect4Hi = 0;
-    nCHRBankSelect8 = 0;
     nPRGBankSelect16Lo = 0;
-    nPRGBankSelect16Hi = 0;
-    nPRGBankSelect32 = 0;
-    pPRGBank[0] = 0;
-    pPRGBank[1] = (nPRGBanks - 1) * 0x4000; // Bank cuối cùng luôn nằm ở 0xC000
-    pCHRBank[0] = 0;
-    pCHRBank[1] = 0x1000;
+    lastWriteCycle = 0;
+    updateMirror();
+    updateBanks();
 }
 
 bool Mapper_001::cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) {
     if (addr >= 0x8000) {
-        // NẾU BIT 7 LÀ 1 -> Reset bộ ghi dịch khẩn cấp!
+        // Bỏ qua lần ghi ở chu kỳ ngay sau một lần ghi khác
+        // (lần ghi thứ 2 của lệnh INC/DEC/ASL... vào ROM).
+        uint64_t now = g_cpuCycle;
+        bool consecutive = (now >= lastWriteCycle) && ((now - lastWriteCycle) < 2);
+        lastWriteCycle = now;
+        if (consecutive) return false;
+
+        // BIT 7 = 1 -> reset bộ ghi dịch, ép PRG mode 3
         if (data & 0x80) {
             nLoadRegister = 0x00;
             nLoadRegisterCount = 0;
-            nControlRegister = nControlRegister | 0x0C;
+            nControlRegister |= 0x0C;
+            updateBanks();   // phải áp dụng ngay, không đợi lần chốt kế tiếp
         }
         else {
-            // Đút từng đồng xu (bit) vào túi
+            // Đút từng bit vào shift register
             nLoadRegister >>= 1;
             nLoadRegister |= (data & 0x01) << 4;
             nLoadRegisterCount++;
 
-            // Đã đủ 5 đồng xu -> CHỐT ĐƠN VÀ LẬT BANK!
+            // Đủ 5 bit -> chốt vào thanh ghi đích
             if (nLoadRegisterCount == 5) {
                 uint8_t nTargetRegister = (addr >> 13) & 0x03;
 
-                if (nTargetRegister == 0) { // 0x8000 - 0x9FFF
+                if (nTargetRegister == 0) {          // $8000-$9FFF: control
                     nControlRegister = nLoadRegister & 0x1F;
-                    switch (nControlRegister & 0x03) {
-                    case 0: currentMirror = MIRROR::ONESCREEN_LO; break;
-                    case 1: currentMirror = MIRROR::ONESCREEN_HI; break;
-                    case 2: currentMirror = MIRROR::VERTICAL;     break;
-                    case 3: currentMirror = MIRROR::HORIZONTAL;   break;
-                    }
+                    updateMirror();
                 }
-                else if (nTargetRegister == 1) { // 0xA000 - 0xBFFF
+                else if (nTargetRegister == 1) {     // $A000-$BFFF: CHR bank 0
                     nCHRBankSelect4Lo = nLoadRegister & 0x1F;
                 }
-                else if (nTargetRegister == 2) { // 0xC000 - 0xDFFF
+                else if (nTargetRegister == 2) {     // $C000-$DFFF: CHR bank 1
                     nCHRBankSelect4Hi = nLoadRegister & 0x1F;
                 }
-                else if (nTargetRegister == 3) { // 0xE000 - 0xFFFF
+                else {                               // $E000-$FFFF: PRG bank
                     nPRGBankSelect16Lo = nLoadRegister & 0x0F;
                 }
 
-                if (nControlRegister & 0x10) {
-                    pCHRBank[0] = nCHRBankSelect4Lo * 0x1000;
-                    pCHRBank[1] = nCHRBankSelect4Hi * 0x1000;
-                }
-                else {
-                    pCHRBank[0] = (nCHRBankSelect4Lo & 0xFE) * 0x1000;
-                    pCHRBank[1] = pCHRBank[0] + 0x1000;
-                }
-
-                uint8_t nPRGMode = (nControlRegister >> 2) & 0x03;
-                if (nPRGMode == 0 || nPRGMode == 1) {
-                    pPRGBank[0] = (nPRGBankSelect16Lo & 0x0E) * 0x4000;
-                    pPRGBank[1] = pPRGBank[0] + 0x4000;
-                }
-                else if (nPRGMode == 2) {
-                    pPRGBank[0] = 0;
-                    pPRGBank[1] = nPRGBankSelect16Lo * 0x4000;
-                }
-                else if (nPRGMode == 3) {
-                    pPRGBank[0] = nPRGBankSelect16Lo * 0x4000;
-                    pPRGBank[1] = (nPRGBanks - 1) * 0x4000;
-                }
-
+                onRegisterCommit(nTargetRegister);
+                updateBanks();
                 nLoadRegister = 0x00;
                 nLoadRegisterCount = 0;
             }
@@ -111,7 +155,7 @@ bool Mapper_001::ppuMapRead(uint16_t addr, uint32_t& mapped_addr) {
             return true;
         }
         else {
-            if (addr >= 0x0000 && addr <= 0x0FFF) {
+            if (addr <= 0x0FFF) {
                 mapped_addr = pCHRBank[0] + (addr & 0x0FFF);
                 return true;
             }
@@ -182,10 +226,7 @@ std::string Mapper_001::GetDebugInfo()
     s += "\nTHANH GHI CHON BANK:\n";
     s += "CHR 4KB Low       : " + std::to_string(nCHRBankSelect4Lo) + "\n";
     s += "CHR 4KB High      : " + std::to_string(nCHRBankSelect4Hi) + "\n";
-    s += "CHR 8KB           : " + std::to_string(nCHRBankSelect8) + "\n";
-    s += "PRG 16KB Low      : " + std::to_string(nPRGBankSelect16Lo) + "\n";
-    s += "PRG 16KB High     : " + std::to_string(nPRGBankSelect16Hi) + "\n";
-    s += "PRG 32KB          : " + std::to_string(nPRGBankSelect32) + "\n";
+    s += "PRG 16KB          : " + std::to_string(nPRGBankSelect16Lo) + "\n";
 
     s += "\nPRG BANK HIEN TAI:\n";
     s += "$8000-$BFFF : offset ROM = 0x" + HexStr(pPRGBank[0], 6) +

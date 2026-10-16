@@ -49,9 +49,17 @@
     <property name="title">
      <string>File</string>
     </property>
+    <widget class="QMenu" name="menuDisk">
+     <property name="title">
+      <string>Disk</string>
+     </property>
+     <addaction name="act_Disk_A"/>
+     <addaction name="act_Disk_B"/>
+    </widget>
     <addaction name="actOpenROM"/>
     <addaction name="actPower"/>
     <addaction name="actReset"/>
+    <addaction name="menuDisk"/>
     <addaction name="actPause"/>
     <addaction name="actExit"/>
    </widget>
@@ -69,6 +77,7 @@
      <addaction name="actNES"/>
      <addaction name="actWaveMMC5"/>
      <addaction name="actWaveN163"/>
+     <addaction name="actWaveFDS"/>
     </widget>
     <addaction name="menuAudio_Waveform"/>
     <addaction name="actMapperViewer"/>
@@ -386,6 +395,21 @@
   <action name="actionrecord">
    <property name="text">
     <string>record</string>
+   </property>
+  </action>
+  <action name="actWaveFDS">
+   <property name="text">
+    <string>FDS</string>
+   </property>
+  </action>
+  <action name="act_Disk_A">
+   <property name="text">
+    <string>Disk A</string>
+   </property>
+  </action>
+  <action name="act_Disk_B">
+   <property name="text">
+    <string>Disk B</string>
    </property>
   </action>
  </widget>

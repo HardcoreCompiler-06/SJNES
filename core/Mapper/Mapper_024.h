@@ -1,3 +1,21 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #pragma once
 #include "Mapper.h"
 #include <cstdint>
@@ -11,7 +29,20 @@ public:
     {
         smoothSawEnabled = enable;
     }
-    bool muteVRC6 = false;
+    bool muteVRC6 = false; // mute cả chip (giữ lại để tương thích chỗ khác đang dùng)
+
+    // Mute riêng từng kênh con — cho phép bật/tắt độc lập Pulse1/Pulse2/Saw
+    bool muteVRC6Pulse1 = false;
+    bool muteVRC6Pulse2 = false;
+    bool muteVRC6Saw = false;
+
+    // Gain riêng từng kênh con (0.0 - 2.0, mặc định 1.0 = không đổi so với gốc),
+    // đi cùng mute ở trên: mute = tắt hẳn, gain = chỉnh to/nhỏ khi KHÔNG mute.
+    // Set qua SettingsDialog slider, channelId dạng "vrc6.pulse1"/"vrc6.pulse2"/"vrc6.saw".
+    float gainVRC6Pulse1 = 1.0f;
+    float gainVRC6Pulse2 = 1.0f;
+    float gainVRC6Saw = 1.0f;
+    void SetChannelGain(const QString& channelId, float gain);
     bool cpuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
     bool cpuMapWrite(uint16_t addr, uint32_t& mapped_addr, uint8_t data) override;
     bool ppuMapRead(uint16_t addr, uint32_t& mapped_addr) override;
@@ -21,6 +52,11 @@ public:
     void GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3) override;
     void GetVRC6DebugPeriods(float& ch1, float& ch2, float& ch3) const;
     void GetVRC6DebugDuty(float& ch1, float& ch2) const;
+    // $9003: bit0 = halt mọi oscillator (giữ nguyên trạng thái), bit1 = x16 tần số,
+    // bit2 = x256 tần số (bit2 thắng bit1 nếu cả hai cùng bật). Theo nesdev "VRC6 audio".
+    bool    haltAllVRC6 = false;
+    uint8_t vrc6FreqShift = 0;
+
     void irqStep() override;
     bool irqState() override;
     void irqClear() override;
@@ -75,7 +111,7 @@ private:
         uint16_t debugTimer = 0;
         uint8_t  debugStep = 0;
         float    debugCyclePeak = 0.0f; // biên độ ĐÓNG BĂNG trong suốt 1 chu kỳ 14-step,        
-        uint16_t debugSubstepPeriod = 0; 
+        uint16_t debugSubstepPeriod = 0;
         float phase = 0.0f;
         float output = 0.0f;
         float prev_output = 0.0f;
@@ -92,14 +128,11 @@ private:
 
             return prev_output + (output - prev_output) * frac;
         }
-        float GetCleanOutput(bool smooth)
+        // KHÔNG có luật "mute khi period < 8" trong tài liệu VRC6 (luật đó chỉ có ở
+        // pulse APU 2A03). Ở đây chỉ cần enable=false thì output đã là 0 (ClockVRC6Audio
+        // lo việc đó), nên hàm này chỉ đơn giản trả lại output hiện tại.
+        float GetCleanOutput(bool /*smooth*/)
         {
-            if (!enable || period < 8)
-            {
-                filtered_output = 0.0f;
-                return 0.0f;
-            }
-
             return output;
         }
     };

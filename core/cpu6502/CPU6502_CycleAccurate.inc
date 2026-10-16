@@ -1,3 +1,5 @@
+// Portions derived from Mesen (https://github.com/SourMesen/Mesen2), GPL-3.0
+// (IRQ/NMI timing model: _prevRunIrq/_runIrq). Also derived from olc6502 (OLC-3), see CPU6502.cpp.
 // ============================================================================
 // CPU6502_CycleAccurate.inc
 // Include file này vào CUỐI CPU6502.cpp (sau khi lookup[] đã được build trong
@@ -48,8 +50,12 @@ void CPU6502::BuildLookup2()
             L2.otype = OpClass::BRANCH; continue;
         }
 
-        // Write-only: STA/STX/STY/SAX
-        if (name == "STA" || name == "STX" || name == "STY" || name == "SAX")
+        // Write-only: STA/STX/STY/SAX + illegal "unstable" SYA(SHY)/SXA(SHX)/SHA(AHX)/TAS
+        // (đều PHẢI là WRITE chứ không phải READ mặc định, nếu không state machine
+        // ABX_/ABY_/IZY_ sẽ không bao giờ gọi write() và cũng sai luôn timing 5/6-cycle
+        // cố định của các opcode này, vì READ-mode chỉ cộng thêm cycle khi có crosspage.)
+        if (name == "STA" || name == "STX" || name == "STY" || name == "SAX" ||
+            name == "SYA" || name == "SXA" || name == "SHA" || name == "TAS")
         {
             L2.otype = OpClass::WRITE; continue;
         }
@@ -86,12 +92,38 @@ void CPU6502::BuildLookup2()
 
 // ---- Bước 2: dispatcher clock() mới, cycle-accurate ----
 // GHI CHÚ: hàm clock() cũ trong CPU6502.cpp cần được XÓA/COMMENT, thay bằng hàm này.
+//
+// clock() giờ chỉ là 1 wrapper mỏng: gọi clockInner() (thân xử lý cycle thật sự, y hệt
+// logic cũ) rồi LUÔN cập nhật thanh ghi dịch 2 tầng irq_source_level_curr/prev sau MỖI
+// cycle - kể cả các cycle giữa chừng 1 lệnh, không chỉ ở ranh giới lệnh. Đây chính là
+// điều Mesen làm trong EndCpuCycle() (`_prevRunIrq = _runIrq; _runIrq = ...`), và là
+// cách duy nhất để "mức tín hiệu IRQ tại cuối cycle áp chót" (thứ phần cứng thật xét,
+// không phải mức hiện tại) được mô phỏng đúng - xem BUG FIX #2 trong CPU6502.h.
 void CPU6502::clock()
+{
+    clockInner();
+
+    // Thanh ghi dịch 2 tầng: prev <- curr (giá trị của cycle VỪA RỒI), rồi curr mới được
+    // tính lại từ trạng thái NGAY SAU khi cycle này xử lý xong. Nhờ vậy, tại ranh giới lệnh
+    // kế tiếp, irq_source_level_prev sẽ luôn phản ánh đúng "cycle áp chót" của lệnh vừa
+    // hoàn tất, không phải cycle cuối cùng (giống hệt cơ chế _prevRunIrq/_runIrq của Mesen).
+    irq_source_level_prev = irq_source_level_curr;
+    irq_source_level_curr = IsIrqActive();
+
+    // ---- BUG FIX #3 (test 05-nmi_timing): nmi_pending trễ 1 cycle, tinh thần giống
+    // BUG FIX #2 nhưng chỉ cần 1 tầng vì đây là tín hiệu cạnh/sticky, không phải mức.
+    // ---- BUG FIX #3 (test 05-nmi_timing): xem giải thích đầy đủ tại khai báo
+    // nmi_pending_level_prev/curr (CPU6502.h). Thanh ghi dịch 2 tầng.
+    nmi_pending_level_prev = nmi_pending_level_curr;
+    nmi_pending_level_curr = nmi_pending;
+}
+
+void CPU6502::clockInner()
 {
     // ---- Ranh giới lệnh: instr_cycle == 0 nghĩa là chuẩn bị fetch opcode mới ----
     if (instr_cycle == 0 && cycles == 0)
     {
-        if (nmi_pending)
+        if (nmi_pending_level_prev && !nmi_retrigger_guard)
         {
             nmi_pending = false;
             instr_cycle = 1;
@@ -99,7 +131,7 @@ void CPU6502::clock()
             cycles = 7;
             return;
         }
-        else if (IsIrqActive() && irq_disable_shadow == 0 && !suppress_irq_check_this_instruction)
+        else if (irq_source_level_prev && irq_disable_shadow == 0 && !suppress_irq_check_this_instruction)
         {
             // Đã dùng xong shadow (giá trị trễ) cho lần xét này - giờ đồng bộ nếu đang nợ
             if (owe_shadow_sync) { irq_disable_shadow = GetFlag(I); owe_shadow_sync = false; }
@@ -116,10 +148,16 @@ void CPU6502::clock()
             // Cờ trì hoãn (rule nhánh rẽ) chỉ có hiệu lực cho ĐÚNG 1 lần kiểm tra IRQ kế tiếp
             suppress_irq_check_this_instruction = false;
 
+            // Sắp fetch 1 lệnh THẬT (không phải chuỗi ngắt) -> "khiên" chống NMI-cướp-lại
+            // hết hạn tại đây. Từ đây, 1 nmi_pending mới sẽ được xét bình thường ở ranh
+            // giới lệnh KẾ TIẾP (tức sau khi lệnh này - lệnh đầu tiên của handler nếu vừa
+            // có ngắt - đã chạy xong trọn vẹn). Đây chính là điều BUG FIX #1 đảm bảo.
+            nmi_retrigger_guard = false;
+
             // Đã dùng xong shadow (giá trị trễ) cho lần xét này - giờ đồng bộ nếu đang nợ
             if (owe_shadow_sync) { irq_disable_shadow = GetFlag(I); owe_shadow_sync = false; }
 
-            if (IsIrqActive() && irq_disable_shadow != 0) irqBlockedCount++;
+            if (irq_source_level_prev && irq_disable_shadow != 0) irqBlockedCount++;
 
             specialMode = SpecialMode::NONE_MODE;
             opcode = read(pc);
@@ -159,6 +197,10 @@ void CPU6502::clock()
                 instr_cycle = 0;
                 cycles = 0;
                 specialMode = SpecialMode::NONE_MODE;
+                // BUG FIX #1: đảm bảo lệnh ĐẦU TIÊN của handler chạy trọn trước khi 1
+                // nmi_pending mới (bật lên trong lúc 7 cycle này đang chạy, sau điểm mà
+                // NMI-hijack-IRQ lẽ ra phải xảy ra) có thể ngắt tiếp ngay lập tức.
+                nmi_retrigger_guard = true;
                 clock_count++;
                 return;
             }
@@ -269,6 +311,12 @@ void CPU6502::StepInstructionCycle()
             instr_cycle = 0; cycles = 0;
             irq_disable_shadow = GetFlag(I); owe_shadow_sync = false;
             brk_hijacked_by_nmi = false;
+            // BUG FIX #1: giống hệt lý do ở specialMode cycle 6 - BRK() cũng tự đọc/ghi
+            // bus nhiều lần (cycle 1-6 ở trên), nên nmi_pending có thể bật lên NGAY TRONG
+            // LÚC BRK đang chạy (sau điểm hijack ở cycle 5). Không chặn lại thì handler sẽ
+            // bị 1 NMI "cướp" lần 2 trước khi kịp chạy lệnh nào - đúng thứ Mesen chặn bằng
+            // `_prevNeedNmi = false` cuối BRK() (comment gốc: "needed for nmi_and_brk test").
+            nmi_retrigger_guard = true;
             return;
         }
         instr_cycle++;

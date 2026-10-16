@@ -1,4 +1,23 @@
+/*
+ * SJNES - Nintendo Entertainment System Emulator
+ * Copyright (C) 2026 Chiến
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
+
 #include "Mapper_069.h"
+#include <algorithm>
 
 Mapper_069::Mapper_069(uint8_t prgBanks, uint8_t chrBanks)
     : Mapper(prgBanks, chrBanks)
@@ -238,14 +257,12 @@ void Mapper_069::irqStep()
             if (period <= 0)
                 period = 1;
 
-            if (toneCounter[ch] <= 0)
+            // Nua chu ky = dung `period` buoc (tan so = CPU / (32 * period)).
+            // Truoc day dem den 0 roi moi dao nen nua chu ky dai period+1 -> am bi thap/lech.
+            if (--toneCounter[ch] <= 0)
             {
                 toneCounter[ch] = period;
                 toneOutput[ch] = !toneOutput[ch];
-            }
-            else
-            {
-                toneCounter[ch]--;
             }
         }
     }
@@ -258,19 +275,22 @@ void Mapper_069::irqStep()
         uint8_t volReg = audioRegs[8 + ch];
         int volume = volReg & 0x0F;
 
-        if (toneDisabled || volume == 0)
+        bool chMuted = (ch == 0 && muteToneA) || (ch == 1 && muteToneB) || (ch == 2 && muteToneC);
+
+        if (toneDisabled || volume == 0 || chMuted)
         {
             lastToneSample[ch] = 0.0f;
         }
         else
         {
             float amp = float(volume) / 15.0f;
+            float chGain = (ch == 0) ? gainToneA : (ch == 1) ? gainToneB : gainToneC;
 
-            lastToneSample[ch] = toneOutput[ch] ? amp : -amp;
+            lastToneSample[ch] = (toneOutput[ch] ? amp : -amp) * chGain;
         }
     }
 
-   
+
     if (irqCounterEnabled)
     {
         uint16_t old = irqCounter;
@@ -296,7 +316,16 @@ void Mapper_069::irqClear()
 float Mapper_069::GetExpansionAudio()
 {
     float mix = lastToneSample[0] + lastToneSample[1] + lastToneSample[2];
-    return mix * 0.07f;
+    return mix * 0.05f;
+}
+
+void Mapper_069::SetChannelGain(const QString& channelId, float gain)
+{
+    gain = std::clamp(gain, 0.0f, 2.0f);
+
+    if (channelId == "s5b.toneA")      gainToneA = gain;
+    else if (channelId == "s5b.toneB") gainToneB = gain;
+    else if (channelId == "s5b.toneC") gainToneC = gain;
 }
 
 void Mapper_069::GetExpansionDebugChannels(float& ch1, float& ch2, float& ch3)
@@ -315,14 +344,15 @@ void Mapper_069::GetExpansionAudioStereo(float& expL, float& expR)
 
 void Mapper_069::GetS5BDebugPeriods(float& ch1, float& ch2, float& ch3) const
 {
-    constexpr float CPU_TO_SAMPLE = 44100.0f / 1789773.0f;
-    auto calc = [&](int ch) -> float {
+    // Truc scope tinh theo sample rate THAT dang xuat ra (khong co dinh 44100).
+    const float CPU_TO_SAMPLE = float(debugSampleRate / 1789773.0);
+    auto calc = [&](int ch, bool chMuted) -> float {
         uint8_t mixer = audioRegs[7];
         bool toneDisabled = (mixer & (1 << ch)) != 0;
         uint8_t volReg = audioRegs[8 + ch];
         int volume = volReg & 0x0F;
 
-        if (toneDisabled || volume == 0)
+        if (toneDisabled || volume == 0 || chMuted)
             return 0.0f;
 
         int fineReg = ch * 2;
@@ -333,31 +363,31 @@ void Mapper_069::GetS5BDebugPeriods(float& ch1, float& ch2, float& ch3) const
 
         // Tone output đảo trạng thái sau mỗi period qua divider 16 CPU cycle.
         // Một chu kỳ vuông cần 2 lần đảo.
-        float samples = float(period + 1) * 32.0f * CPU_TO_SAMPLE;
+        float samples = float(period) * 32.0f * CPU_TO_SAMPLE;
         if (samples < 2.0f) return 0.0f;
         if (samples > 8192.0f) return 8192.0f;
         return samples;
         };
 
-    ch1 = calc(0);
-    ch2 = calc(1);
-    ch3 = calc(2);
+    ch1 = calc(0, muteToneA);
+    ch2 = calc(1, muteToneB);
+    ch3 = calc(2, muteToneC);
 }
 
 void Mapper_069::GetS5BDebugDuty(float& ch1, float& ch2, float& ch3) const
 {
     // PSG/Sunsoft 5B tone là square 50%.
-    auto active = [&](int ch) -> float {
+    auto active = [&](int ch, bool chMuted) -> float {
         uint8_t mixer = audioRegs[7];
         bool toneDisabled = (mixer & (1 << ch)) != 0;
         uint8_t volReg = audioRegs[8 + ch];
         int volume = volReg & 0x0F;
-        return (!toneDisabled && volume > 0) ? 0.5f : -1.0f;
-    };
+        return (!toneDisabled && volume > 0 && !chMuted) ? 0.5f : -1.0f;
+        };
 
-    ch1 = active(0);
-    ch2 = active(1);
-    ch3 = active(2);
+    ch1 = active(0, muteToneA);
+    ch2 = active(1, muteToneB);
+    ch3 = active(2, muteToneC);
 }
 
 std::string Mapper_069::GetDebugInfo()
@@ -366,7 +396,10 @@ std::string Mapper_069::GetDebugInfo()
 
     s += "===== Sunsoft FME-7 / 5B Mapper 69 =====\n";
     s += "Command: " + std::to_string(command) + "\n";
-    s += "Mirror Mode: " + std::to_string(mirrorMode) + "\n\n";
+    s += "Mirror Mode: " + std::to_string(mirrorMode) + "\n";
+    s += "Mute Tone A: " + std::string(muteToneA ? "CO" : "KHONG") + "\n";
+    s += "Mute Tone B: " + std::string(muteToneB ? "CO" : "KHONG") + "\n";
+    s += "Mute Tone C: " + std::string(muteToneC ? "CO" : "KHONG") + "\n\n";
 
     s += "CHR Banks 1KB:\n";
     for (int i = 0; i < 8; i++)
